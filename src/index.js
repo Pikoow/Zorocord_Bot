@@ -219,6 +219,8 @@ client.on('interactionCreate', async (interaction) => {
                         lastBidder = 'Pik';
                     } else if (lastBidder === 'albret_') {
                         lastBidder = 'Albret';
+                    } else if (lastBidder === 'a_gay_whale') {
+                        lastBidder = 'Ester';
                     }
 
                     if (lastBidder) {
