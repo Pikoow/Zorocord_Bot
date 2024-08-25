@@ -3,6 +3,9 @@ const { Client, IntentsBitField, EmbedBuilder } = require('discord.js');
 const { connect, default: mongoose } = require('mongoose');
 const Roster = require('../src/schemas/roster');
 const { registerCommands } = require('./register-commands');
+const express = require('express');
+const app = express();
+const port = 20777;
 
 const client = new Client({
     intents: [
@@ -19,6 +22,14 @@ const client = new Client({
 })();
 
 client.on('ready', async (c) => {
+    app.get('/', (req, res) => {
+        res.status(200).send('Zorocord Auction is online !');
+    });
+
+    app.listen(port, () => {
+        console.log(`Zorocord Auction is listening to https://localhost:${port}`);
+    });
+
     console.log(`${c.user.tag} is ready.`);
     const rosterChoices = await getRosterChoices();
     await registerCommands(rosterChoices);
