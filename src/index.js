@@ -290,6 +290,18 @@ client.on('interactionCreate', async (interaction) => {
                     return;
                 }
 
+                const numberPlayers = potentialBidderProfile.rosterPlayers.length();
+
+                if (numberPlayers < 6 && newPrice > potentialBidderProfile.rosterBudget - (3000 * (6 - numberPlayers))) {
+                    const impossibleFundsEmbed = new EmbedBuilder()
+                        .setTitle('Bid Rejected')
+                        .setDescription(`**${potentialBidder}**, your bid of **${newPrice}** will stop you from getting a complete roster.`)
+                        .setColor(0xFF0000);
+
+                    await interaction.channel.send({ embeds: [impossibleFundsEmbed] });
+                    return;
+                }
+
                 lastBidder = potentialBidder;
                 lastBidderId = message.author.id;
                 currentPrice = newPrice;
