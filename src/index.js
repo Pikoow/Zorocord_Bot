@@ -260,6 +260,8 @@ client.on('interactionCreate', async (interaction) => {
 
                 if (newPrice <= currentPrice) return;
 
+                if (message.author.id === lastBidderId) return;
+
                 if (potentialBidder === '_n_tm_') {
                     potentialBidder = 'N';
                 } else if (potentialBidder === 'forgo_isles_ceo') {
@@ -273,7 +275,7 @@ client.on('interactionCreate', async (interaction) => {
                 } else if (potentialBidder === 'albret_') {
                     potentialBidder = 'Albret';
                 } else if (lastBidder === 'a_gay_whale') {
-                    lastBidder = 'Ester';
+                    potentialBidder = 'Ester';
                 }
 
                 const potentialBidderProfile = await Roster.findOne({ managerName: potentialBidder });
