@@ -290,7 +290,7 @@ client.on('interactionCreate', async (interaction) => {
                     return;
                 }
 
-                const numberPlayers = potentialBidderProfile.rosterPlayers.length();
+                const numberPlayers = potentialBidderProfile.rosterPlayers.length;
 
                 if (numberPlayers < 6 && newPrice > potentialBidderProfile.rosterBudget - (3000 * (6 - numberPlayers))) {
                     const impossibleFundsEmbed = new EmbedBuilder()
