@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, IntentsBitField, EmbedBuilder } = require('discord.js');
+const { Client, IntentsBitField, EmbedBuilder, ActivityType } = require('discord.js');
 const { connect, default: mongoose } = require('mongoose');
 const Roster = require('../src/schemas/roster');
 const { registerCommands } = require('./register-commands');
@@ -31,6 +31,13 @@ client.on('ready', async (c) => {
     });
 
     console.log(`${c.user.tag} is ready.`);
+
+    client.user.setActivity({
+        name: 'Fuck the british',
+        type: ActivityType.Streaming,
+        url: 'https://play.pokemonshowdown.com/sprites/gen6/chesnaught.png',
+    });
+
     const rosterChoices = await getRosterChoices();
     await registerCommands(rosterChoices);
 });
