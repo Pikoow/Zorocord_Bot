@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { REST, Routes, ApplicationCommandOptionType } = require('discord.js');
+const { REST, Routes, ApplicationCommandOptionType, PermissionsBitField } = require('discord.js');
 
 const registerCommands = async (rosterChoices) => {
         const commands = [
