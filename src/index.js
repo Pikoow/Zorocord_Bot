@@ -15,6 +15,7 @@ const client = new Client({
 
 (async () => {
     await connect(process.env.MONGODB_ID).catch(console.error);
+    
     client.login(process.env.TOKEN);
 })();
 
