@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, IntentsBitField, EmbedBuilder } = require('discord.js');
+const { Client, IntentsBitField, EmbedBuilder, ActivityType } = require('discord.js');
 const { connect, default: mongoose } = require('mongoose');
 const Roster = require('../src/schemas/roster');
 const { registerCommands } = require('./register-commands');
@@ -19,7 +19,13 @@ const client = new Client({
 })();
 
 client.on('ready', async (c) => {
+    client.user.setActivity({
+        name: 'Fuck the british',
+        type: ActivityType.Playing,
+    });
+
     console.log(`${c.user.tag} is ready.`);
+
     const rosterChoices = await getRosterChoices();
     await registerCommands(rosterChoices);
 });
