@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, IntentsBitField, EmbedBuilder, ActivityType, PermissionsBitField } = require('discord.js');
+const { Client, IntentsBitField, EmbedBuilder } = require('discord.js');
 const { connect, default: mongoose } = require('mongoose');
 const Roster = require('../src/schemas/roster');
 const { registerCommands } = require('./register-commands');
@@ -15,20 +15,13 @@ const client = new Client({
 
 (async () => {
     await connect(process.env.MONGODB_ID).catch(console.error);
-    
     client.login(process.env.TOKEN);
 })();
 
 client.on('ready', async (c) => {
+    console.log(`${c.user.tag} is ready.`);
     const rosterChoices = await getRosterChoices();
     await registerCommands(rosterChoices);
-
-    console.log(`${c.user.tag} is ready.`);
-
-    client.user.setActivity({
-        name: 'Fuck the british',
-        type: ActivityType.Playing,
-    });
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -215,8 +208,6 @@ client.on('interactionCreate', async (interaction) => {
                         lastBidder = 'Pik';
                     } else if (lastBidder === 'albret_') {
                         lastBidder = 'Albret';
-                    } else if (lastBidder === 'a_gay_whale') {
-                        lastBidder = 'Ester';
                     }
 
                     if (lastBidder) {
@@ -254,10 +245,6 @@ client.on('interactionCreate', async (interaction) => {
 
                 let potentialBidder = message.author.username;
 
-                if (newPrice <= currentPrice) return;
-
-                if (message.author.id === lastBidderId) return;
-
                 if (potentialBidder === '_n_tm_') {
                     potentialBidder = 'N';
                 } else if (potentialBidder === 'forgo_isles_ceo') {
@@ -270,8 +257,6 @@ client.on('interactionCreate', async (interaction) => {
                     potentialBidder = 'Pik';
                 } else if (potentialBidder === 'albret_') {
                     potentialBidder = 'Albret';
-                } else if (lastBidder === 'a_gay_whale') {
-                    potentialBidder = 'Ester';
                 }
 
                 const potentialBidderProfile = await Roster.findOne({ managerName: potentialBidder });
@@ -283,18 +268,6 @@ client.on('interactionCreate', async (interaction) => {
                         .setColor(0xFF0000);
 
                     await interaction.channel.send({ embeds: [insufficientFundsEmbed] });
-                    return;
-                }
-
-                const numberPlayers = potentialBidderProfile.rosterPlayers.length;
-
-                if (numberPlayers < 6 && newPrice > potentialBidderProfile.rosterBudget - (3000 * (6 - numberPlayers))) {
-                    const impossibleFundsEmbed = new EmbedBuilder()
-                        .setTitle('Bid Rejected')
-                        .setDescription(`**${potentialBidder}**, your bid of **${newPrice}** will stop you from getting a complete roster.`)
-                        .setColor(0xFF0000);
-
-                    await interaction.channel.send({ embeds: [impossibleFundsEmbed] });
                     return;
                 }
 
