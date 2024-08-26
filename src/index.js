@@ -34,8 +34,7 @@ client.on('ready', async (c) => {
 
     client.user.setActivity({
         name: 'Fuck the british',
-        type: ActivityType.Streaming,
-        url: 'https://play.pokemonshowdown.com/sprites/gen6/chesnaught.png',
+        type: ActivityType.Playing,
     });
 
     const rosterChoices = await getRosterChoices();
