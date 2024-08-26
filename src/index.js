@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, IntentsBitField, EmbedBuilder, ActivityType } = require('discord.js');
+const { Client, IntentsBitField, EmbedBuilder, ActivityType, PermissionsBitField } = require('discord.js');
 const { connect, default: mongoose } = require('mongoose');
 const Roster = require('../src/schemas/roster');
 const { registerCommands } = require('./register-commands');
@@ -45,6 +45,16 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === "delete_roster") {
+        const permissionsEmbed = new EmbedBuilder()
+            .setTitle('Stop !')
+            .setDescription(`You don't have the permissions to use this command.`)
+            .setColor(0xFF0000);
+
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+            await interaction.reply({ embeds: [permissionsEmbed] });
+            return;
+        }
+
         const rosterName = interaction.options.get('roster_name').value;
 
         const rosterProfile = await Roster.findOne({ rosterName });
@@ -92,6 +102,16 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === "reset_roster") {
+        const permissionsEmbed = new EmbedBuilder()
+            .setTitle('Stop !')
+            .setDescription(`You don't have the permissions to use this command.`)
+            .setColor(0xFF0000);
+
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+            await interaction.reply({ embeds: [permissionsEmbed] });
+            return;
+        }
+
         const rosterName = interaction.options.get('roster_name').value;
 
         const rosterProfile = await Roster.findOne({ rosterName });
@@ -109,6 +129,16 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === "create_roster") {
+        const permissionsEmbed = new EmbedBuilder()
+            .setTitle('Stop !')
+            .setDescription(`You don't have the permissions to use this command.`)
+            .setColor(0xFF0000);
+
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+            await interaction.reply({ embeds: [permissionsEmbed] });
+            return;
+        }
+
         const manager = interaction.options.get('manager').value;
         const rosterName = interaction.options.get('roster_name').value;
 
@@ -160,6 +190,16 @@ client.on('interactionCreate', async (interaction) => {
     }
     
     if (interaction.commandName === "start") {
+        const permissionsEmbed = new EmbedBuilder()
+            .setTitle('Stop !')
+            .setDescription(`You don't have the permissions to use this command.`)
+            .setColor(0xFF0000);
+
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+            await interaction.reply({ embeds: [permissionsEmbed] });
+            return;
+        }
+        
         const player = interaction.options.get('player').value;
         const time = interaction.options.get('time').value;
         const startingPrice = interaction.options.get('starting_price').value;
