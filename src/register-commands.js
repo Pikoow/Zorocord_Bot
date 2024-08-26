@@ -26,6 +26,7 @@ const registerCommands = async (rosterChoices) => {
                         required: true,
                     },
                 ],
+                default_member_permissions: PermissionsBitField.Flags.ManageMessages.toString(),
             },
             {
                 name: 'roster',
@@ -39,6 +40,7 @@ const registerCommands = async (rosterChoices) => {
                         choices: rosterChoices,
                     },
                 ],
+                default_member_permissions: PermissionsBitField.Flags.SendMessages.toString(),
             },
             {
                 name: 'create_roster',
@@ -57,6 +59,7 @@ const registerCommands = async (rosterChoices) => {
                         required: true,
                     },
                 ],
+                default_member_permissions: PermissionsBitField.Flags.ManageMessages.toString(),
             },
             {
                 name: 'reset_roster',
@@ -70,10 +73,12 @@ const registerCommands = async (rosterChoices) => {
                         choices: rosterChoices,
                     },
                 ],
+                default_member_permissions: PermissionsBitField.Flags.ManageMessages.toString(),
             },
             {
                 name: 'show_rosters',
                 description: 'Shows all rosters.',
+                default_member_permissions: PermissionsBitField.Flags.SendMessages.toString(),
             },
             {
                 name: 'delete_roster',
@@ -87,6 +92,7 @@ const registerCommands = async (rosterChoices) => {
                         choices: rosterChoices,
                     },
                 ],
+                default_member_permissions: PermissionsBitField.Flags.ManageMessages.toString(),
             },
         ];
 
