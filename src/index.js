@@ -249,6 +249,8 @@ client.on('interactionCreate', async (interaction) => {
             collector.on('collect', async (message) => {
                 const newPrice = parseInt(message.content.trim(), 10);
 
+                if (newPrice <= currentPrice) return;
+
                 let potentialBidder = message.author.username;
 
                 if (potentialBidder === '_n_tm_') {
