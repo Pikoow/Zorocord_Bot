@@ -211,7 +211,7 @@ client.on('interactionCreate', async (interaction) => {
                     } else if (lastBidder === 'roy_yamaha') {
                         lastBidder = 'Ryellow Yamada';
                     } else if (lastBidder === 'pikoow') {
-                        lastBidder = 'Pik';
+                        lastBidder = 'Lulu';
                     } else if (lastBidder === 'albret_') {
                         lastBidder = 'Albret';
                     }
@@ -254,7 +254,7 @@ client.on('interactionCreate', async (interaction) => {
                 let potentialBidder = message.author.username;
 
                 if (potentialBidder === '_n_tm_') {
-                    potentialBidder = 'N';
+                    potentialBidder = 'Lulu';
                 } else if (potentialBidder === 'forgo_isles_ceo') {
                     potentialBidder = 'Lulu';
                 } else if (potentialBidder === 'applejuice127') {
@@ -262,7 +262,7 @@ client.on('interactionCreate', async (interaction) => {
                 } else if (potentialBidder === 'roy_yamaha') {
                     potentialBidder = 'Ryellow Yamada';
                 } else if (potentialBidder === 'pikoow') {
-                    potentialBidder = 'Pik';
+                    potentialBidder = 'Lulu';
                 } else if (potentialBidder === 'albret_') {
                     potentialBidder = 'Albret';
                 }
