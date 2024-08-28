@@ -66,6 +66,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === "show_rosters") {
         const guildId = interaction.guild.id;
         const rosters = await Roster.find({ guildId }); // Filtrer par guildId
+        const guild = interaction.guild;
     
         if (!rosters.length) {
             const noRostersEmbed = new EmbedBuilder()
@@ -80,15 +81,27 @@ client.on('interactionCreate', async (interaction) => {
             .setTitle('All Rosters')
             .setColor(0x3498DB);
     
-        rosters.forEach(roster => {
+        for (const roster of rosters) {
+            let managerName = 'Unknown User'; // Default value
+    
+            try {
+                const manager = await guild.members.fetch(roster.managerName);
+                managerName = manager.user.username; // Utiliser `manager.user.username`
+            } catch (error) {
+                console.error('Error fetching member:', error);
+            }
+    
             const rosterDetails = roster.rosterPlayers
                 .map(player => `**${player.playerName}** - ${player.purchasePrice}`)
                 .join('\n') || 'No players in this roster yet.';
     
             allRostersEmbed.addFields([
-                { name: `${roster.rosterName}`, value: `Manager : **${roster.managerName}**\n` + `Budget : **${roster.rosterBudget}**` + '\n' + rosterDetails }
+                {
+                    name: `${roster.rosterName}`,
+                    value: `Manager : **${managerName}**\nBudget : **${roster.rosterBudget}**\n${rosterDetails}`
+                }
             ]);
-        });
+        }
     
         await interaction.reply({ embeds: [allRostersEmbed] });
     }
@@ -122,7 +135,6 @@ client.on('interactionCreate', async (interaction) => {
             managerName = member.user.username;
         } catch (error) {
             console.error('Error fetching member:', error);
-            auctionActive = true; // Unlock auction if error occurs
             return;
         }
     
@@ -192,7 +204,7 @@ client.on('interactionCreate', async (interaction) => {
     
         const auctionEmbed = new EmbedBuilder()
             .setTitle('Auction Started!')
-            .setDescription(`Player being auctioned: **${player}**\nStarting price: **${startingPrice}** zorocoins.`)
+            .setDescription(`Player being auctioned: **${player}**\nStarting price: **${startingPrice}**.`)
             .setColor(0xFFA500);
     
         await interaction.reply({ embeds: [auctionEmbed] });
@@ -255,7 +267,7 @@ client.on('interactionCreate', async (interaction) => {
                             await winnerProfile.save();
     
                             endAuctionEmbed.setDescription(
-                                `Auction ended! Final price: **${currentPrice}** zorocoins by **${lastBidderName}**.\n` +
+                                `Auction ended! Final price: **${currentPrice}** by **${lastBidderName}**.\n` +
                                 `**${lastBidderName}** now has a remaining budget of **${winnerProfile.rosterBudget}**.`
                             );
                         } else {
@@ -304,7 +316,7 @@ client.on('interactionCreate', async (interaction) => {
                 if (!potentialBidderProfile || potentialBidderProfile.rosterBudget < newPrice) {
                     const insufficientFundsEmbed = new EmbedBuilder()
                         .setTitle('Bid Rejected')
-                        .setDescription(`**${potentialBidderName}**, your bid of **${newPrice}** exceeds your current budget of **${potentialBidderProfile ? potentialBidderProfile.rosterBudget : 0}** zorocoins.`)
+                        .setDescription(`**${potentialBidderName}**, your bid of **${newPrice}** exceeds your current budget of **${potentialBidderProfile ? potentialBidderProfile.rosterBudget : 0}**.`)
                         .setColor(0xFF0000);
     
                     await interaction.channel.send({ embeds: [insufficientFundsEmbed] });
@@ -317,7 +329,7 @@ client.on('interactionCreate', async (interaction) => {
     
                 const bidEmbed = new EmbedBuilder()
                     .setTitle('New Bid!')
-                    .setDescription(`**${potentialBidderName}** has bid **${currentPrice}** zorocoins on **${player}**!`)
+                    .setDescription(`**${potentialBidderName}** has bid **${currentPrice}** on **${player}**!`)
                     .setColor(0x00FF00);
     
                 await interaction.channel.send({ embeds: [bidEmbed] });
@@ -361,7 +373,7 @@ client.on('interactionCreate', async (interaction) => {
         if (rosterProfile.rosterBudget < playerPrice) {
             const embed = new EmbedBuilder()
                 .setTitle('Insufficient Budget')
-                .setDescription(`Cannot add **${playerName}**. The price of **${playerPrice}** exceeds the remaining budget of **${rosterProfile.rosterBudget}** zorocoins.`)
+                .setDescription(`Cannot add **${playerName}**. The price of **${playerPrice}** exceeds the remaining budget of **${rosterProfile.rosterBudget}**.`)
                 .setColor(0xFF0000);
 
             return interaction.reply({ embeds: [embed] });
@@ -378,9 +390,10 @@ client.on('interactionCreate', async (interaction) => {
 
         const embed = new EmbedBuilder()
             .setTitle('Player Added')
-            .setDescription(`Player **${playerName}** with a price of **${playerPrice}** zorocoins has been added to the roster **${rosterName}**.`)
             .addFields(
-                { name: 'Remaining Budget', value: `${rosterProfile.rosterBudget} zorocoins`, inline: true }
+                { name: 'Player', value: `${playerName}`, inline: true },
+                { name: 'Roster', value: `${rosterName}`, inline: true },
+                { name: 'Remaining Budget', value: `${rosterProfile.rosterBudget}`, inline: true }
             )
             .setColor(0x00FF00);
 
