@@ -26,8 +26,11 @@ client.on('ready', async (c) => {
 
     console.log(`${c.user.tag} is ready.`);
 
-    const rosterChoices = await getRosterChoices();
-    await registerCommands(rosterChoices);
+    const guilds = client.guilds.cache.map(guild => guild.id);
+    for (const guildId of guilds) {
+        const rosterChoices = await getRosterChoices(guildId);
+        await registerCommands(rosterChoices, guildId);
+    }
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -35,48 +38,58 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === "delete_roster") {
         const rosterName = interaction.options.get('roster_name').value;
-
-        const rosterProfile = await Roster.findOne({ rosterName });
-
-        await Roster.deleteOne({ rosterName }).catch(console.error);
-
+        const guildId = interaction.guild.id;
+    
+        const rosterProfile = await Roster.findOne({ rosterName, guildId });
+    
+        if (!rosterProfile) {
+            const embed = new EmbedBuilder()
+                .setTitle('Roster Not Found')
+                .setDescription(`No roster found with the name **${rosterName}** in this server.`)
+                .setColor(0xFF0000);
+            return interaction.reply({ embeds: [embed] });
+        }
+    
+        await Roster.deleteOne({ rosterName, guildId }).catch(console.error);
+    
         const embed = new EmbedBuilder()
             .setTitle('Roster Deleted')
             .setDescription(`The roster **${rosterName}** has been deleted successfully.`)
             .setColor(0x00FF00);
-
+    
         await interaction.reply({ embeds: [embed] });
-
-        const rosterChoices = await getRosterChoices();
-        await registerCommands(rosterChoices);
+    
+        const rosterChoices = await getRosterChoices(guildId);
+        await registerCommands(rosterChoices, guildId);
     }
 
     if (interaction.commandName === "show_rosters") {
-        const rosters = await Roster.find();
-
+        const guildId = interaction.guild.id;
+        const rosters = await Roster.find({ guildId }); // Filtrer par guildId
+    
         if (!rosters.length) {
             const noRostersEmbed = new EmbedBuilder()
                 .setTitle('No Rosters Found')
-                .setDescription('There are no rosters available.')
+                .setDescription('There are no rosters available in this server.')
                 .setColor(0xFF0000);
             await interaction.reply({ embeds: [noRostersEmbed] });
             return;
         }
-
+    
         const allRostersEmbed = new EmbedBuilder()
             .setTitle('All Rosters')
             .setColor(0x3498DB);
-
+    
         rosters.forEach(roster => {
             const rosterDetails = roster.rosterPlayers
                 .map(player => `**${player.playerName}** - ${player.purchasePrice}`)
                 .join('\n') || 'No players in this roster yet.';
-
+    
             allRostersEmbed.addFields([
                 { name: `${roster.rosterName}`, value: `Manager : **${roster.managerName}**\n` + `Budget : **${roster.rosterBudget}**` + '\n' + rosterDetails }
             ]);
         });
-
+    
         await interaction.reply({ embeds: [allRostersEmbed] });
     }
 
@@ -100,51 +113,64 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === "create_roster") {
         const manager = interaction.options.get('manager').value;
         const rosterName = interaction.options.get('roster_name').value;
-
+        const guildId = interaction.guild.id;
+        const guild = interaction.guild;
+        let managerName = null;
+    
+        try {
+            let member = await guild.members.fetch(manager);
+            managerName = member.user.username;
+        } catch (error) {
+            console.error('Error fetching member:', error);
+            auctionActive = true; // Unlock auction if error occurs
+            return;
+        }
+    
         const rosterProfile = new Roster({
             _id: new mongoose.Types.ObjectId(),
+            guildId: guildId, // Association du guildId
             managerName: manager,
             rosterName: rosterName,
             rosterPlayers: [],
             rosterBudget: 120000,
         });
-
+    
         await rosterProfile.save().catch(console.error);
-
+    
         const embed = new EmbedBuilder()
             .setTitle('Roster Created')
-            .setDescription(`The roster named **${rosterProfile.rosterName}** managed by **${rosterProfile.managerName}** has been created!`)
+            .setDescription(`The roster named **${rosterProfile.rosterName}** managed by **${managerName}** has been created in this server!`)
             .setColor(0x00FF00);
-
+    
         await interaction.reply({ embeds: [embed] });
-
-        const rosterChoices = await getRosterChoices();
-        await registerCommands(rosterChoices);
+    
+        const rosterChoices = await getRosterChoices(guildId);
+        await registerCommands(rosterChoices, guildId);
     }
     
     if (interaction.commandName === "roster") {
-        const name = interaction.options.get('name').value;
-
-        let rosterProfile = await Roster.findOne({ rosterName: name });
-
+        const rosterName = interaction.options.get('name').value;
+        const guildId = interaction.guild.id;
+    
+        let rosterProfile = await Roster.findOne({ rosterName, guildId });
+    
         if (!rosterProfile) {
             const embed = new EmbedBuilder()
                 .setTitle('Roster Not Found')
-                .setDescription(`No roster found with the name **${rosterName}**.`)
+                .setDescription(`No roster found with the name **${rosterName}** in this server.`)
                 .setColor(0xFF0000);
-
-            return interaction.reply({ embeds: [embed]});
+            return interaction.reply({ embeds: [embed] });
         }
-
+    
         const rosterDetails = rosterProfile.rosterPlayers
-            .map(player => `**${player.playerName}** - ${player.purchasePrice} zorocoins`)
+            .map(player => `**${player.playerName}** - ${player.purchasePrice}`)
             .join('\n');
-
+    
         const embed = new EmbedBuilder()
-            .setTitle(`${rosterProfile.rosterName} :`)
-            .setDescription(rosterProfile.rosterPlayers.length > 0 ? `${rosterDetails}` + `\nBudget : **${rosterProfile.rosterBudget}**` : 'No players in this roster.' + `\nBudget : **${rosterProfile.rosterBudget}**`)
+            .setTitle(`${rosterProfile.rosterName}:`)
+            .setDescription(rosterProfile.rosterPlayers.length > 0 ? `Budget: **${rosterProfile.rosterBudget}**\n${rosterDetails}` : 'No players in this roster.' + `\nBudget: **${rosterProfile.rosterBudget}**`)
             .setColor(0x3498DB);
-
+    
         await interaction.reply({ embeds: [embed] });
     }
     
@@ -152,37 +178,40 @@ client.on('interactionCreate', async (interaction) => {
         const player = interaction.options.get('player').value;
         const time = interaction.options.get('time').value;
         const startingPrice = interaction.options.get('starting_price').value;
-
+    
+        const guildId = interaction.guild.id; // Use guildId to identify the server
+        const guild = interaction.guild;
+    
         let currentPrice = startingPrice;
         let lastBidder = null;
-        let lastBidderId = null;
         let countdown = time;
         let countdownInterval = null;
         let countdownMessage = null;
         let collector = null;
-
+        let auctionActive = false;
+    
         const auctionEmbed = new EmbedBuilder()
-            .setTitle('Auction Started !')
-            .setDescription(`Player getting auctionned : **${player}** !\nStarting price: **${startingPrice}** zorocoins.`)
+            .setTitle('Auction Started!')
+            .setDescription(`Player being auctioned: **${player}**\nStarting price: **${startingPrice}** zorocoins.`)
             .setColor(0xFFA500);
-
+    
         await interaction.reply({ embeds: [auctionEmbed] });
-
+    
         const startCountdown = async () => {
             if (countdownInterval) clearInterval(countdownInterval);
-
+    
             if (countdownMessage) await countdownMessage.delete();
-
+    
             countdown = time;
             countdownMessage = await interaction.channel.send({
                 embeds: [
                     new EmbedBuilder()
                         .setTitle('Time Left')
-                        .setDescription(`${countdown} seconds !`)
+                        .setDescription(`${countdown} seconds left!`)
                         .setColor(0xFFFF00)
                 ]
             });
-
+    
             countdownInterval = setInterval(async () => {
                 if (countdown > 0) {
                     countdown--;
@@ -190,118 +219,177 @@ client.on('interactionCreate', async (interaction) => {
                         embeds: [
                             new EmbedBuilder()
                                 .setTitle('Time Left')
-                                .setDescription(`${countdown} seconds !`)
+                                .setDescription(`${countdown} seconds left!`)
                                 .setColor(0xFFFF00)
                         ]
                     });
                 } else {
                     clearInterval(countdownInterval);
                     collector.stop();
-
+    
                     const endAuctionEmbed = new EmbedBuilder()
-                        .setTitle('Auction Ended !')
+                        .setTitle('Auction Ended!')
                         .setColor(0xFF0000);
-
-                    if (lastBidder === '_n_tm_') {
-                        lastBidder = 'N';
-                    } else if (lastBidder === 'forgo_isles_ceo') {
-                        lastBidder = 'Lulu';
-                    } else if (lastBidder === 'applejuice127') {
-                        lastBidder = 'Felilou';
-                    } else if (lastBidder === 'roy_yamaha') {
-                        lastBidder = 'Ryellow Yamada';
-                    } else if (lastBidder === 'pikoow') {
-                        lastBidder = 'Lulu';
-                    } else if (lastBidder === 'albret_') {
-                        lastBidder = 'Albret';
-                    }
-
+    
                     if (lastBidder) {
-                        const winnerProfile = await Roster.findOne({ managerName: lastBidder });
-
+                        let lastBidderName = null;
+    
+                        try {
+                            const member = await guild.members.fetch(lastBidder);
+                            lastBidderName = member.user.username;
+                        } catch (error) {
+                            console.error('Error fetching member:', error);
+                            endAuctionEmbed.setDescription('Auction ended, but an error occurred fetching the last bidder.');
+                            await interaction.channel.send({ embeds: [endAuctionEmbed] });
+                            return;
+                        }
+    
+                        const winnerProfile = await Roster.findOne({ managerName: lastBidder, guildId });
+    
                         if (winnerProfile) {
                             winnerProfile.rosterBudget -= currentPrice;
                             winnerProfile.rosterPlayers.push({
                                 playerName: player,
-                                purchasePrice: currentPrice
+                                purchasePrice: currentPrice,
                             });
                             await winnerProfile.save();
-
-                            endAuctionEmbed.setDescription(`Auction ended! Final price: **${currentPrice}** zorocoins by **${lastBidder}**.\n**${lastBidder}** now has a remaining budget of **${winnerProfile.rosterBudget}**.`);
+    
+                            endAuctionEmbed.setDescription(
+                                `Auction ended! Final price: **${currentPrice}** zorocoins by **${lastBidderName}**.\n` +
+                                `**${lastBidderName}** now has a remaining budget of **${winnerProfile.rosterBudget}**.`
+                            );
                         } else {
-                            endAuctionEmbed.setDescription(`Auction ended, but an error occurred with the winner's profile.`);
+                            endAuctionEmbed.setDescription('Auction ended, but an error occurred with the winner\'s profile.');
                         }
                     } else {
                         endAuctionEmbed.setDescription('Auction ended with no bids.');
                     }
-
+    
                     await interaction.channel.send({ embeds: [endAuctionEmbed] });
                 }
             }, 1000);
         };
-
+    
         const startCollector = () => {
             if (collector) collector.stop();
-
+    
             const filter = (message) => !isNaN(message.content) && message.content.trim().length > 0;
             collector = interaction.channel.createMessageCollector({ filter, time: time * 1000 });
-
+    
             collector.on('collect', async (message) => {
+                if (!auctionActive) return; // Ignore messages if auction is not active
+    
                 const newPrice = parseInt(message.content.trim(), 10);
-
+    
                 if (newPrice <= currentPrice) return;
-
-                let potentialBidder = message.author.username;
-
-                if (potentialBidder === '_n_tm_') {
-                    potentialBidder = 'Lulu';
-                } else if (potentialBidder === 'forgo_isles_ceo') {
-                    potentialBidder = 'Lulu';
-                } else if (potentialBidder === 'applejuice127') {
-                    potentialBidder = 'Felilou';
-                } else if (potentialBidder === 'roy_yamaha') {
-                    potentialBidder = 'Ryellow Yamada';
-                } else if (potentialBidder === 'pikoow') {
-                    potentialBidder = 'Lulu';
-                } else if (potentialBidder === 'albret_') {
-                    potentialBidder = 'Albret';
-                }
-
-                const potentialBidderProfile = await Roster.findOne({ managerName: potentialBidder });
-
-                if (potentialBidderProfile.rosterBudget < newPrice) {
-                    const insufficientFundsEmbed = new EmbedBuilder()
-                        .setTitle('Bid Rejected')
-                        .setDescription(`**${potentialBidder}**, your bid of **${newPrice}** exceeds your current budget of **${potentialBidderProfile.rosterBudget}** zorocoins.`)
-                        .setColor(0xFF0000);
-
-                    await interaction.channel.send({ embeds: [insufficientFundsEmbed] });
+    
+                if (message.author.id === lastBidder) return; // Ignore bids from the same bidder
+    
+                auctionActive = false; // Lock auction until current bid is processed
+    
+                let potentialBidderName = null;
+                let potentialBidder = message.author.id;
+    
+                try {
+                    const member = await guild.members.fetch(potentialBidder);
+                    potentialBidderName = member.user.username;
+                } catch (error) {
+                    console.error('Error fetching member:', error);
+                    auctionActive = true; // Unlock auction if error occurs
                     return;
                 }
-
-                lastBidder = potentialBidder;
-                lastBidderId = message.author.id;
+    
+                const potentialBidderProfile = await Roster.findOne({ managerName: potentialBidder, guildId });
+    
+                if (!potentialBidderProfile || potentialBidderProfile.rosterBudget < newPrice) {
+                    const insufficientFundsEmbed = new EmbedBuilder()
+                        .setTitle('Bid Rejected')
+                        .setDescription(`**${potentialBidderName}**, your bid of **${newPrice}** exceeds your current budget of **${potentialBidderProfile ? potentialBidderProfile.rosterBudget : 0}** zorocoins.`)
+                        .setColor(0xFF0000);
+    
+                    await interaction.channel.send({ embeds: [insufficientFundsEmbed] });
+                    auctionActive = true; // Unlock auction if bid is rejected
+                    return;
+                }
+    
                 currentPrice = newPrice;
-
+                lastBidder = potentialBidder;
+    
                 const bidEmbed = new EmbedBuilder()
                     .setTitle('New Bid!')
-                    .setDescription(`**${lastBidder}** has bid **${currentPrice}** zorocoins on **${player}**!`)
+                    .setDescription(`**${potentialBidderName}** has bid **${currentPrice}** zorocoins on **${player}**!`)
                     .setColor(0x00FF00);
-
+    
                 await interaction.channel.send({ embeds: [bidEmbed] });
-
-                await startCountdown();
-                startCollector();
+    
+                auctionActive = true; // Unlock auction to allow new bids
             });
         };
-
+    
+        auctionActive = true; // Start auction
         await startCountdown();
         startCollector();
     }
+
+    if (interaction.commandName === 'add_member') {
+        const rosterName = interaction.options.getString('roster_name');
+        const playerName = interaction.options.getString('player_name');
+        const playerPrice = interaction.options.getNumber('player_price');
+
+        const rosterProfile = await Roster.findOne({ rosterName, guildId: interaction.guild.id });
+
+        if (!rosterProfile) {
+            const embed = new EmbedBuilder()
+                .setTitle('Roster Not Found')
+                .setDescription(`No roster found with the name **${rosterName}**.`)
+                .setColor(0xFF0000);
+
+            return interaction.reply({ embeds: [embed] });
+        }
+
+        const playerExists = rosterProfile.rosterPlayers.some(player => player.playerName === playerName);
+
+        if (playerExists) {
+            const embed = new EmbedBuilder()
+                .setTitle('Player Already Exists')
+                .setDescription(`The player **${playerName}** is already in the roster **${rosterName}**.`)
+                .setColor(0xFF0000);
+
+            return interaction.reply({ embeds: [embed] });
+        }
+
+        if (rosterProfile.rosterBudget < playerPrice) {
+            const embed = new EmbedBuilder()
+                .setTitle('Insufficient Budget')
+                .setDescription(`Cannot add **${playerName}**. The price of **${playerPrice}** exceeds the remaining budget of **${rosterProfile.rosterBudget}** zorocoins.`)
+                .setColor(0xFF0000);
+
+            return interaction.reply({ embeds: [embed] });
+        }
+
+        rosterProfile.rosterPlayers.push({
+            playerName,
+            purchasePrice: playerPrice,
+        });
+
+        rosterProfile.rosterBudget -= playerPrice;
+
+        await rosterProfile.save();
+
+        const embed = new EmbedBuilder()
+            .setTitle('Player Added')
+            .setDescription(`Player **${playerName}** with a price of **${playerPrice}** zorocoins has been added to the roster **${rosterName}**.`)
+            .addFields(
+                { name: 'Remaining Budget', value: `${rosterProfile.rosterBudget} zorocoins`, inline: true }
+            )
+            .setColor(0x00FF00);
+
+        await interaction.reply({ embeds: [embed] });
+    }
 });
 
-async function getRosterChoices() {
-    const rosters = await Roster.find({}, 'rosterName').exec();
+async function getRosterChoices(guildId) {
+    const rosters = await Roster.find({ guildId }, 'rosterName').exec();
     return rosters.map(roster => ({
         name: roster.rosterName,
         value: roster.rosterName,
