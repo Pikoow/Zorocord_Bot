@@ -399,6 +399,40 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({ embeds: [embed] });
     }
+
+    if (interaction.commandName === 'help') {
+        try {
+            // Fetch all commands registered for the guild
+            const commands = await interaction.guild.commands.fetch();
+
+            const helpEmbed = new EmbedBuilder()
+                .setTitle('Help - Available Commands')
+                .setColor(0x3498DB);
+
+            commands.forEach(command => {
+                let optionsList = command.options.map(opt => `\`${opt.name}\``).join(' ');
+
+                // Construct the title with the command name and options
+                let fieldTitle = `/${command.name} ${optionsList}`;
+
+                // Generate a detailed description of the options
+                let optionsDescription = '';
+                if (command.options) {
+                    optionsDescription = command.options.map(opt => `**${opt.name}**: ${opt.description}`).join('\n');
+                }
+
+                helpEmbed.addFields({
+                    name: fieldTitle,
+                    value: `${command.description}\n${optionsDescription}`,
+                });
+            });
+
+            await interaction.reply({ embeds: [helpEmbed] });
+        } catch (error) {
+            console.error('Error fetching commands:', error);
+            await interaction.reply({ content: 'There was an error retrieving the commands.', ephemeral: true });
+        }
+    }
 });
 
 async function getRosterChoices(guildId) {
