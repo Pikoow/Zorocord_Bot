@@ -117,6 +117,38 @@ const registerCommands = async (rosterChoices, guildId) => {
             name: 'help',
             description: 'Displays all the available commands and their descriptions.',
         },
+        {
+            name: 'transfer_player',
+            description: 'Transfers a player from one roster to another.',
+            options: [
+                {
+                    name: 'player_name',
+                    description: 'The name of the player to transfer.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                },
+                {
+                    name: 'from_roster',
+                    description: 'The name of the roster from which the player is being transferred.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                    choices: rosterChoices,
+                },
+                {
+                    name: 'to_roster',
+                    description: 'The name of the roster to which the player is being transferred.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                    choices: rosterChoices,
+                },
+                {
+                    name: 'transfer_price',
+                    description: 'The price of the player transfer.',
+                    type: ApplicationCommandOptionType.Number,
+                    required: true,
+                },
+            ],
+        },
     ];
 
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);

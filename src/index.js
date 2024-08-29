@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, IntentsBitField, EmbedBuilder, ActivityType } = require('discord.js');
+const { Client, IntentsBitField, EmbedBuilder, ActivityType, PermissionsBitField } = require('discord.js');
 const { connect, default: mongoose } = require('mongoose');
 const Roster = require('../src/schemas/roster');
 const { registerCommands } = require('./register-commands');
@@ -191,7 +191,7 @@ client.on('interactionCreate', async (interaction) => {
         const time = interaction.options.get('time').value;
         const startingPrice = interaction.options.get('starting_price').value;
     
-        const guildId = interaction.guild.id; // Use guildId to identify the server
+        const guildId = interaction.guild.id;
         const guild = interaction.guild;
     
         let currentPrice = startingPrice;
@@ -200,11 +200,11 @@ client.on('interactionCreate', async (interaction) => {
         let countdownInterval = null;
         let countdownMessage = null;
         let collector = null;
-        let auctionActive = false;
+        let auctionAborted = false; // Flag to indicate if the auction is aborted
     
         const auctionEmbed = new EmbedBuilder()
             .setTitle('Auction Started!')
-            .setDescription(`Player being auctioned: **${player}**\nStarting price: **${startingPrice}**.`)
+            .setDescription(`Player being auctioned: **${player}**\nStarting price: **${startingPrice}** zorocoins.`)
             .setColor(0xFFA500);
     
         await interaction.reply({ embeds: [auctionEmbed] });
@@ -239,45 +239,53 @@ client.on('interactionCreate', async (interaction) => {
                     clearInterval(countdownInterval);
                     collector.stop();
     
-                    const endAuctionEmbed = new EmbedBuilder()
-                        .setTitle('Auction Ended!')
-                        .setColor(0xFF0000);
+                    if (!auctionAborted) {
+                        const endAuctionEmbed = new EmbedBuilder()
+                            .setTitle('Auction Ended!')
+                            .setColor(0xFF0000);
     
-                    if (lastBidder) {
-                        let lastBidderName = null;
+                        if (lastBidder) {
+                            let lastBidderName = null;
     
-                        try {
-                            const member = await guild.members.fetch(lastBidder);
-                            lastBidderName = member.user.username;
-                        } catch (error) {
-                            console.error('Error fetching member:', error);
-                            endAuctionEmbed.setDescription('Auction ended, but an error occurred fetching the last bidder.');
-                            await interaction.channel.send({ embeds: [endAuctionEmbed] });
-                            return;
-                        }
+                            try {
+                                const member = await guild.members.fetch(lastBidder);
+                                lastBidderName = member.user.username;
+                            } catch (error) {
+                                await interaction.reply('Could not fetch member.');
+                                console.error('Error fetching member:', error);
+                                return;
+                            }
     
-                        const winnerProfile = await Roster.findOne({ managerName: lastBidder, guildId });
+                            const winnerProfile = await Roster.findOne({ managerName: lastBidder, guildId });
     
-                        if (winnerProfile) {
-                            winnerProfile.rosterBudget -= currentPrice;
-                            winnerProfile.rosterPlayers.push({
-                                playerName: player,
-                                purchasePrice: currentPrice,
-                            });
-                            await winnerProfile.save();
+                            if (winnerProfile) {
+                                winnerProfile.rosterBudget -= currentPrice;
+                                winnerProfile.rosterPlayers.push({
+                                    playerName: player,
+                                    purchasePrice: currentPrice,
+                                });
+                                await winnerProfile.save();
     
-                            endAuctionEmbed.setDescription(
-                                `Auction ended! Final price: **${currentPrice}** by **${lastBidderName}**.\n` +
-                                `**${lastBidderName}** now has a remaining budget of **${winnerProfile.rosterBudget}**.`
-                            );
+                                endAuctionEmbed.setDescription(
+                                    `Auction ended! Final price: **${currentPrice}** zorocoins by **${lastBidderName}**.\n` +
+                                    `**${lastBidderName}** now has a remaining budget of **${winnerProfile.rosterBudget}**.`
+                                );
+                            } else {
+                                endAuctionEmbed.setDescription('Auction ended, but an error occurred with the winner\'s profile.');
+                            }
                         } else {
-                            endAuctionEmbed.setDescription('Auction ended, but an error occurred with the winner\'s profile.');
+                            endAuctionEmbed.setDescription('Auction ended with no bids.');
                         }
-                    } else {
-                        endAuctionEmbed.setDescription('Auction ended with no bids.');
-                    }
     
-                    await interaction.channel.send({ embeds: [endAuctionEmbed] });
+                        await interaction.channel.send({ embeds: [endAuctionEmbed] });
+                    } else {
+                        const abortEmbed = new EmbedBuilder()
+                            .setTitle('Auction Aborted')
+                            .setDescription('The auction has been aborted due to a request.')
+                            .setColor(0xFF0000);
+    
+                        await interaction.channel.send({ embeds: [abortEmbed] });
+                    }
                 }
             }, 1000);
         };
@@ -285,19 +293,47 @@ client.on('interactionCreate', async (interaction) => {
         const startCollector = () => {
             if (collector) collector.stop();
     
-            const filter = (message) => !isNaN(message.content) && message.content.trim().length > 0;
+            const filter = (message) => {
+                const content = message.content.trim();
+                return !isNaN(content) && content.length > 0 || content.toLowerCase() === 'end';
+            };
             collector = interaction.channel.createMessageCollector({ filter, time: time * 1000 });
     
             collector.on('collect', async (message) => {
-                if (!auctionActive) return; // Ignore messages if auction is not active
+                if (message.content.trim().toLowerCase() === 'end') {
+                    const member = await guild.members.fetch(message.author.id);
+
+                    if (!member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+                        const noPermissionEmbed = new EmbedBuilder()
+                            .setTitle('Permission Denied')
+                            .setDescription(`**${member.user.username}**, you don't have the required permissions to abort the auction.`)
+                            .setColor(0xFF0000);
+
+                        await message.channel.send({ embeds: [noPermissionEmbed] });
+                        return;
+                    }
+
+                    if (auctionAborted) return;
+    
+                    auctionAborted = true;
+                    collector.stop();
+    
+                    clearInterval(countdownInterval);
+                    if (countdownMessage) await countdownMessage.delete();
+    
+                    const abortEmbed = new EmbedBuilder()
+                        .setTitle('Auction Aborted')
+                        .setDescription('The auction has been aborted due to a request.')
+                        .setColor(0xFF0000);
+    
+                    await interaction.channel.send({ embeds: [abortEmbed] });
+    
+                    return;
+                }
     
                 const newPrice = parseInt(message.content.trim(), 10);
     
                 if (newPrice <= currentPrice) return;
-    
-                if (message.author.id === lastBidder) return; // Ignore bids from the same bidder
-    
-                auctionActive = false; // Lock auction until current bid is processed
     
                 let potentialBidderName = null;
                 let potentialBidder = message.author.id;
@@ -306,8 +342,8 @@ client.on('interactionCreate', async (interaction) => {
                     const member = await guild.members.fetch(potentialBidder);
                     potentialBidderName = member.user.username;
                 } catch (error) {
+                    await interaction.reply('Could not fetch member.');
                     console.error('Error fetching member:', error);
-                    auctionActive = true; // Unlock auction if error occurs
                     return;
                 }
     
@@ -316,11 +352,10 @@ client.on('interactionCreate', async (interaction) => {
                 if (!potentialBidderProfile || potentialBidderProfile.rosterBudget < newPrice) {
                     const insufficientFundsEmbed = new EmbedBuilder()
                         .setTitle('Bid Rejected')
-                        .setDescription(`**${potentialBidderName}**, your bid of **${newPrice}** exceeds your current budget of **${potentialBidderProfile ? potentialBidderProfile.rosterBudget : 0}**.`)
+                        .setDescription(`**${potentialBidderName}**, your bid of **${newPrice}** exceeds your current budget of **${potentialBidderProfile ? potentialBidderProfile.rosterBudget : 0}** zorocoins.`)
                         .setColor(0xFF0000);
     
                     await interaction.channel.send({ embeds: [insufficientFundsEmbed] });
-                    auctionActive = true; // Unlock auction if bid is rejected
                     return;
                 }
     
@@ -329,16 +364,16 @@ client.on('interactionCreate', async (interaction) => {
     
                 const bidEmbed = new EmbedBuilder()
                     .setTitle('New Bid!')
-                    .setDescription(`**${potentialBidderName}** has bid **${currentPrice}** on **${player}**!`)
+                    .setDescription(`**${potentialBidderName}** has bid **${currentPrice}** zorocoins on **${player}**!`)
                     .setColor(0x00FF00);
     
                 await interaction.channel.send({ embeds: [bidEmbed] });
     
-                auctionActive = true; // Unlock auction to allow new bids
+                await startCountdown();
+                startCollector();
             });
         };
     
-        auctionActive = true; // Start auction
         await startCountdown();
         startCollector();
     }
@@ -431,6 +466,83 @@ client.on('interactionCreate', async (interaction) => {
         } catch (error) {
             console.error('Error fetching commands:', error);
             await interaction.reply({ content: 'There was an error retrieving the commands.', ephemeral: true });
+        }
+    }
+
+    if (interaction.commandName === 'transfer_player') {
+        const playerName = interaction.options.getString('player_name');
+        const fromRosterName = interaction.options.getString('from_roster');
+        const toRosterName = interaction.options.getString('to_roster');
+        const transferPrice = interaction.options.getNumber('transfer_price');
+        const guildId = interaction.guild.id;
+
+        try {
+            // Find rosters
+            const fromRoster = await Roster.findOne({ rosterName: fromRosterName, guildId });
+            const toRoster = await Roster.findOne({ rosterName: toRosterName, guildId });
+
+            if (!fromRoster || !toRoster) {
+                const embed = new EmbedBuilder()
+                    .setTitle('Roster Not Found')
+                    .setDescription('One or both rosters could not be found.')
+                    .setColor(0xFF0000);
+                return await interaction.reply({ embeds: [embed] });
+            }
+
+            // Find player in the 'from' roster
+            const playerIndex = fromRoster.rosterPlayers.findIndex(player => player.playerName === playerName);
+            if (playerIndex === -1) {
+                const embed = new EmbedBuilder()
+                    .setTitle('Player Not Found')
+                    .setDescription(`Player **${playerName}** not found in roster **${fromRosterName}**.`)
+                    .setColor(0xFF0000);
+                return await interaction.reply({ embeds: [embed] });
+            }
+
+            const player = fromRoster.rosterPlayers[playerIndex];
+
+            // Check if transfer price is valid
+            if (transferPrice <= 0) {
+                const embed = new EmbedBuilder()
+                    .setTitle('Invalid Transfer Price')
+                    .setDescription('The transfer price must be greater than 0.')
+                    .setColor(0xFF0000);
+                return await interaction.reply({ embeds: [embed] });
+            }
+
+            // Check if 'from' roster has enough budget
+            if (fromRoster.rosterBudget < transferPrice) {
+                const embed = new EmbedBuilder()
+                    .setTitle('Insufficient Budget')
+                    .setDescription(`The budget of **${fromRosterName}** is insufficient to cover the transfer price of **${transferPrice}**.`)
+                    .setColor(0xFF0000);
+                return await interaction.reply({ embeds: [embed] });
+            }
+
+            // Remove player from 'from' roster and add to 'to' roster
+            fromRoster.rosterPlayers.splice(playerIndex, 1);
+            fromRoster.rosterBudget += transferPrice;
+
+            // Ensure player object is correctly formatted
+            const newPlayer = {
+                playerName: player.playerName,
+                purchasePrice: transferPrice,
+            };
+            toRoster.rosterPlayers.push(newPlayer);
+            toRoster.rosterBudget -= transferPrice;
+
+            await fromRoster.save();
+            await toRoster.save();
+
+            const embed = new EmbedBuilder()
+                .setTitle('Player Transferred')
+                .setDescription(`Player **${playerName}** has been transferred from **${fromRosterName}** to **${toRosterName}** for **${transferPrice}**.`)
+                .setColor(0x00FF00);
+            await interaction.reply({ embeds: [embed] });
+
+        } catch (error) {
+            console.error('Error processing transfer:', error);
+            await interaction.reply({ content: 'There was an error processing the transfer.', ephemeral: true });
         }
     }
 });
