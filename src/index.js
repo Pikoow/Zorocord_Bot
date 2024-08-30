@@ -1,8 +1,11 @@
 require('dotenv').config();
-const { Client, IntentsBitField, EmbedBuilder, ActivityType, PermissionsBitField } = require('discord.js');
+const { Client, IntentsBitField, EmbedBuilder, ActivityType, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType, PermissionsBitField } = require('discord.js');
 const { connect, default: mongoose } = require('mongoose');
 const Roster = require('../src/schemas/roster');
+const Prediction = require('../src/schemas/prediction');
+const Leaderboard = require('../src/schemas/leaderboard');
 const { registerCommands } = require('./register-commands');
+const leaderboard = require('../src/schemas/leaderboard');
 
 const client = new Client({
     intents: [
@@ -29,12 +32,370 @@ client.on('ready', async (c) => {
     const guilds = client.guilds.cache.map(guild => guild.id);
     for (const guildId of guilds) {
         const rosterChoices = await getRosterChoices(guildId);
-        await registerCommands(rosterChoices, guildId);
+        const predictionChoices = await getPredictionChoices(guildId);
+        await registerCommands(rosterChoices, predictionChoices, guildId);
     }
 });
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === "leaderboard") {
+        const guildId = interaction.guildId;
+
+        const topMembers = await Leaderboard.find({ guildId })
+            .sort({ playerPoints: -1 })
+            .limit(10);
+
+        const embed = new EmbedBuilder()
+            .setTitle('Leaderboard')
+            .setDescription(topMembers.length > 0 ? topMembers.map((member, index) => `**${index + 1}. ${member.playerName}** ${member.playerPoints} points`).join('\n') : 'No leaderboard data available.')
+            .setColor(0x00FF00);
+
+        await interaction.reply({ embeds: [embed] });
+    }
+
+    if (interaction.commandName === "distribute_points") {
+        const guildId = interaction.guildId;
+        const predictionName = interaction.options.getString('prediction_name');
+    
+        const prediction = await Prediction.findOne({ guildId, predictionName });
+
+        if (!prediction) {
+            return interaction.reply({ content: 'Prediction not found.', ephemeral: true });
+        }
+    
+        const duels = prediction.duels;
+    
+        const embed = new EmbedBuilder()
+            .setTitle(`Set the winners of the prediction : ${prediction.predictionName}`)
+            .setDescription(`**${prediction.roster1.rosterName}** vs **${prediction.roster2.rosterName}**`);
+
+        await interaction.reply({ embeds: [embed] });
+
+        duels.forEach(async (duel, index) => {
+            const duelEmbed = new EmbedBuilder()
+                .setDescription(`**${duel.slot1}** vs **${duel.slot2}**\n` +
+                                `**${duel.votes.slot1}** votes vs **${duel.votes.slot2}** votes`)
+                .setFooter({ text: 'Vote by clicking the buttons below' });
+    
+            const firstButton = new ButtonBuilder()
+                .setCustomId(`duel_${index}_slot1`)
+                .setLabel(duel.slot1)
+                .setStyle(ButtonStyle.Primary);
+    
+            const secondButton = new ButtonBuilder()
+                .setCustomId(`duel_${index}_slot2`)  // Use index to identify the duel
+                .setLabel(duel.slot2)
+                .setStyle(ButtonStyle.Primary);
+    
+            const buttonRow = new ActionRowBuilder().addComponents(firstButton, secondButton);
+    
+            await interaction.channel.send({ embeds: [duelEmbed], components: [buttonRow] });
+        });
+
+        const collector = interaction.channel.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            time: 86400000, // 24 hours
+        });
+    
+        collector.on('collect', async (buttonInteraction) => {
+            if (buttonInteraction.customId.startsWith('duel_')) {
+                const [_, duelIndex, slot] = buttonInteraction.customId.split('_');
+                const voteSlot = slot === 'slot1' ? 'slot1' : 'slot2';
+    
+                const duelToUpdate = prediction.duels[parseInt(duelIndex)];
+
+                for (const vote of duelToUpdate.votedUsers) {
+                    if (vote.slotVoted === (voteSlot === 'slot1' ? 1 : 2)) {
+                        const guild = await client.guilds.fetch(guildId);
+                        const member = await guild.members.fetch(vote.voterId);
+                        const username = member.user.username;
+
+                        const user = await Leaderboard.findOne({ guildId, playerName: username });
+
+                        if (user) {
+                            user.playerPoints += 1;
+                            await user.save();
+                        }
+                    }
+                }
+
+                await buttonInteraction.reply({ 
+                    content: `The people who voted for **${duelToUpdate[voteSlot]}** received their points.`,
+                });
+
+                await buttonInteraction.message.edit({
+                    components: []
+                });
+            }
+        });
+    }
+
+    if (interaction.commandName === "reset_prediction") {
+        const guildId = interaction.guildId;
+        const predictionName = interaction.options.getString('prediction_name');
+
+        // Fetch the prediction
+        const prediction = await Prediction.findOne({ guildId, predictionName }).populate('roster1 roster2');
+        if (!prediction) {
+            return interaction.reply({ content: 'Prediction not found.', ephemeral: true });
+        }
+
+        // Reset votes and votedUsers for each duel
+        for (const duel of prediction.duels) {
+            duel.votes.slot1 = 0;
+            duel.votes.slot2 = 0;
+            duel.votedUsers = []; // Make sure you have this array in your schema
+        }
+
+        // Save the changes
+        await prediction.save();
+
+        // Send a confirmation message
+        const embed = new EmbedBuilder()
+            .setTitle('Prediction Reset')
+            .setDescription(`The prediction **${prediction.predictionName}** has been reset. All votes have been cleared.`)
+            .setColor(0xFF0000);
+
+        await interaction.reply({ embeds: [embed] });
+    }
+
+    if (interaction.commandName === "delete_prediction") {
+        const guildId = interaction.guildId;
+        const predictionName = interaction.options.getString('prediction_name');
+
+        const result = await Prediction.deleteOne({ predictionName, guildId });
+
+        if (result.deletedCount === 0) {
+            return interaction.reply({ content: 'Prediction not found.', ephemeral: true });
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle('Prediction deleted')
+            .setDescription(`Prediction **${predictionName}** deleted.`)
+            .setColor(0xFF0000);
+    
+        await interaction.reply({ embeds: [embed] });
+
+        const rosterChoices = await getRosterChoices(guildId);
+        const predictionChoices = await getPredictionChoices(guildId);
+        await registerCommands(rosterChoices, predictionChoices, guildId);
+    }
+
+    if (interaction.commandName === "create_prediction") {
+        const guildId = interaction.guildId;
+        const predictionName = interaction.options.getString('prediction_name');
+        const roster1Name = interaction.options.getString('roster1');
+        const roster2Name = interaction.options.getString('roster2');
+        const numberDuels = interaction.options.getNumber('number_of_duels');
+    
+        const rosters = await Roster.find({ guildId, rosterName: { $in: [roster1Name, roster2Name] } });
+    
+        if (rosters.length !== 2) {
+            return interaction.reply({ content: 'One or both rosters not found.', ephemeral: true });
+        }
+    
+        const [roster1, roster2] = rosters;
+    
+        const prediction = new Prediction({
+            _id: new mongoose.Types.ObjectId(),
+            predictionName: predictionName,
+            guildId,
+            roster1: roster1._id,
+            roster2: roster2._id,
+            votes: { roster1: 0, roster2: 0 },
+            duels: [],
+        });
+    
+        const embed = new EmbedBuilder()
+            .setTitle('Prediction Created')
+            .setDescription(`Prediction (**${predictionName}**) created between **${roster1Name}** and **${roster2Name}**.`)
+            .setColor(0x00FF00);
+    
+        await interaction.reply({ embeds: [embed] });
+    
+        const duelEmbed = new EmbedBuilder()
+            .setTitle('New Duel')
+            .setDescription(`Please provide the duels in the format: \`player1 ; player2\`.`)
+            .setColor(0x00FF00);
+    
+        await interaction.followUp({ embeds: [duelEmbed] });
+    
+        const filter = response => response.author.id === interaction.user.id;
+        const collector = interaction.channel.createMessageCollector({ filter, max: numberDuels, time: 60000 });
+    
+        let duelCount = 0;
+    
+        collector.on('collect', message => {
+            const duelInfo = message.content.split(';').map(str => str.trim());
+    
+            if (duelInfo.length === 2) {
+                prediction.duels.push({
+                    slot1: duelInfo[0],
+                    slot2: duelInfo[1],
+                    votes: { 
+                        slot1: 0, 
+                        slot2: 0 
+                    },
+                    votedUsers: []
+                });
+    
+                duelCount++;
+                interaction.followUp(`Duel ${duelCount} added: **${duelInfo[0]}** vs **${duelInfo[1]}**`);
+    
+                if (duelCount === numberDuels) {
+                    collector.stop();
+                }
+            } else {
+                interaction.followUp('Invalid format. Please use: `player1 ; player2`.');
+            }
+        });
+    
+        collector.on('end', async collected => {
+            if (duelCount < numberDuels) {
+                interaction.followUp({ content: `Only ${duelCount} out of ${numberDuels} duels were added.`, ephemeral: true });
+            } else {
+                interaction.followUp({ content: `All ${numberDuels} duels have been successfully registered.` });
+            }
+    
+            // Save the prediction with the collected duels
+            await prediction.save();
+    
+            const rosterChoices = await getRosterChoices(guildId);
+            const predictionChoices = await getPredictionChoices(guildId);
+            await registerCommands(rosterChoices, predictionChoices, guildId);
+        });
+    }
+
+    if (interaction.commandName === "start_prediction") {
+        const guildId = interaction.guildId;
+        const predictionName = interaction.options.getString('prediction_name');
+    
+        const prediction = await Prediction.findOne({ guildId, predictionName }).populate('roster1 roster2');
+        if (!prediction) {
+            return interaction.reply({ content: 'Prediction not found.', ephemeral: true });
+        }
+    
+        const duels = prediction.duels;
+    
+        const embed = new EmbedBuilder()
+            .setTitle(`Prediction : ${prediction.predictionName}`)
+            .setDescription(`**${prediction.roster1.rosterName}** vs **${prediction.roster2.rosterName}**`);
+    
+        await interaction.reply({ embeds: [embed] });
+    
+        const endButton = new ButtonBuilder()
+            .setCustomId('end_voting')
+            .setLabel('End Voting')
+            .setStyle(ButtonStyle.Danger);
+    
+        const endButtonRow = new ActionRowBuilder().addComponents(endButton);
+    
+        duels.forEach(async (duel, index) => {
+            const duelEmbed = new EmbedBuilder()
+                .setDescription(`**${duel.slot1}** vs **${duel.slot2}**\n` +
+                                `**${duel.votes.slot1}** votes vs **${duel.votes.slot2}** votes`)
+                .setFooter({ text: 'Vote by clicking the buttons below' });
+    
+            const firstButton = new ButtonBuilder()
+                .setCustomId(`duel_${index}_slot1`)  // Use index to identify the duel
+                .setLabel(duel.slot1)
+                .setStyle(ButtonStyle.Primary);
+    
+            const secondButton = new ButtonBuilder()
+                .setCustomId(`duel_${index}_slot2`)  // Use index to identify the duel
+                .setLabel(duel.slot2)
+                .setStyle(ButtonStyle.Primary);
+    
+            const buttonRow = new ActionRowBuilder().addComponents(firstButton, secondButton);
+    
+            await interaction.channel.send({ embeds: [duelEmbed], components: [buttonRow] });
+        });
+    
+        await interaction.channel.send({ content: 'Click "End Voting" to stop voting.', components: [endButtonRow] });
+    
+        const collector = interaction.channel.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            time: 86400000, // 24 hours
+        });
+    
+        collector.on('collect', async (buttonInteraction) => {
+            if (buttonInteraction.customId.startsWith('duel_')) {
+                const [_, duelIndex, slot] = buttonInteraction.customId.split('_');
+                const voteSlot = slot === 'slot1' ? 'slot1' : 'slot2';
+    
+                const duelToUpdate = prediction.duels[parseInt(duelIndex)];
+
+                const userName = buttonInteraction.user.username;
+                const leaderboardEntry = await Leaderboard.findOne({ guildId, playerName: userName });
+
+                if (!leaderboardEntry) {
+                    const newLeaderboardEntry = new Leaderboard({
+                        _id: new mongoose.Types.ObjectId(),
+                        guildId,
+                        playerName: userName,
+                        playerPoints: 0,
+                    });
+
+                    await newLeaderboardEntry.save();
+                }
+
+                if (!duelToUpdate) {
+                    return buttonInteraction.reply({ content: 'Duel not found.', ephemeral: true });
+                }
+
+                const userHasVoted = duelToUpdate.votedUsers.some(vote => vote.voterId === buttonInteraction.user.id);
+
+                if (userHasVoted) {
+                    return buttonInteraction.reply({ content: 'You have already voted in this duel.', ephemeral: true });
+                }
+    
+                duelToUpdate.votes[slot]++;
+
+                if (slot === 'slot1') {
+                    slotNumber = 1;
+                } else {
+                    slotNumber = 2;
+                }
+
+                duelToUpdate.votedUsers.push({
+                    voterId: buttonInteraction.user.id,
+                    slotVoted: slotNumber,
+                });
+                await prediction.save();
+
+                await buttonInteraction.reply({ 
+                    content: `Vote recorded for **${duelToUpdate[voteSlot]}** in the duel between **${duelToUpdate.slot1}** and **${duelToUpdate.slot2}**.`,
+                    ephemeral: true
+                });
+    
+                const duelEmbed = new EmbedBuilder()
+                    .setDescription(`**${duelToUpdate.slot1}** vs **${duelToUpdate.slot2}**\n` +
+                                    `**${duelToUpdate.votes.slot1}** votes vs **${duelToUpdate.votes.slot2}** votes`)
+                    .setFooter({ text: 'Vote by clicking the buttons below' });
+
+                const message = await buttonInteraction.message.fetch();
+                await message.edit({ embeds: [duelEmbed] });
+            } else if (buttonInteraction.customId === 'end_voting') {
+                if (!buttonInteraction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                    return buttonInteraction.reply({ content: 'You do not have permission to end voting.', ephemeral: true });
+                }
+    
+                collector.stop('End button clicked by a moderator.');
+    
+                await interaction.channel.send('Voting has ended.');
+            }
+        });
+    
+        collector.on('end', (collected, reason) => {
+            if (reason === 'End button clicked by a moderator.') {
+                interaction.channel.send(`Voting ended by a moderator. ${collected.size} votes collected.`);
+            } else {
+                interaction.channel.send(`Voting ended automatically. ${collected.size} votes collected.`);
+            }
+        });
+    }
 
     if (interaction.commandName === "delete_roster") {
         const rosterName = interaction.options.get('roster_name').value;
@@ -60,12 +421,13 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ embeds: [embed] });
     
         const rosterChoices = await getRosterChoices(guildId);
-        await registerCommands(rosterChoices, guildId);
+        const predictionChoices = await getPredictionChoices(guildId);
+        await registerCommands(rosterChoices, predictionChoices, guildId);
     }
 
     if (interaction.commandName === "show_rosters") {
         const guildId = interaction.guild.id;
-        const rosters = await Roster.find({ guildId }); // Filtrer par guildId
+        const rosters = await Roster.find({ guildId });
         const guild = interaction.guild;
     
         if (!rosters.length) {
@@ -140,7 +502,7 @@ client.on('interactionCreate', async (interaction) => {
     
         const rosterProfile = new Roster({
             _id: new mongoose.Types.ObjectId(),
-            guildId: guildId, // Association du guildId
+            guildId: guildId,
             managerName: manager,
             rosterName: rosterName,
             rosterPlayers: [],
@@ -157,7 +519,8 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ embeds: [embed] });
     
         const rosterChoices = await getRosterChoices(guildId);
-        await registerCommands(rosterChoices, guildId);
+        const predictionChoices = await getPredictionChoices(guildId);
+        await registerCommands(rosterChoices, predictionChoices, guildId);
     }
     
     if (interaction.commandName === "roster") {
@@ -555,4 +918,12 @@ async function getRosterChoices(guildId) {
     }));
 }
 
-module.exports = { getRosterChoices };
+async function getPredictionChoices(guildId) {
+    const predictions = await Prediction.find({ guildId }, 'predictionName').exec();
+    return predictions.map(prediction => ({
+        name: prediction.predictionName,
+        value: prediction.predictionName,
+    }));
+}
+
+module.exports = { getRosterChoices, getPredictionChoices };

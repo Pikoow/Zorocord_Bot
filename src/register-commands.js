@@ -1,7 +1,7 @@
 require('dotenv').config();
 const { REST, Routes, ApplicationCommandOptionType } = require('discord.js');
 
-const registerCommands = async (rosterChoices, guildId) => {
+const registerCommands = async (rosterChoices, predictionChoices, guildId) => {
     const commands = [
         {
             name: 'start',
@@ -148,6 +148,94 @@ const registerCommands = async (rosterChoices, guildId) => {
                     required: true,
                 },
             ],
+        },
+        {
+            name: 'create_prediction',
+            description: 'Creates a new prediction.',
+            options: [
+                {
+                    name: 'prediction_name',
+                    description: 'The name of the prediction.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                },
+                {
+                    name: 'roster1',
+                    description: 'The first roster for the prediction.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                    choices: rosterChoices,
+                },
+                {
+                    name: 'roster2',
+                    description: 'The second roster for the prediction.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                    choices: rosterChoices,
+                },
+                {
+                    name: 'number_of_duels',
+                    description: 'The number of duels that will be happening between the two rosters.',
+                    type: ApplicationCommandOptionType.Number,
+                    required: true,
+                }
+            ],
+        },
+        {
+            name: 'delete_prediction',
+            description: 'Deletes a prediction.',
+            options: [
+                {
+                    name: 'prediction_name',
+                    description: 'The name of the prediction to delete.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                    choices: predictionChoices,
+                },
+            ],
+        },
+        {
+            name: 'start_prediction',
+            description: 'Shows ongoing predictions.',
+            options: [
+                {
+                    name: 'prediction_name',
+                    description: 'The name of the prediction to end.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                    choices: predictionChoices,
+                },
+            ],
+        },
+        {
+            name: 'reset_prediction',
+            description: 'Resets a predictions.',
+            options: [
+                {
+                    name: 'prediction_name',
+                    description: 'The name of the prediction to reset.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                    choices: predictionChoices,
+                },
+            ],
+        },
+        {
+            name: 'distribute_points',
+            description: 'Distributes points depending on who wons the duels.',
+            options: [
+                {
+                    name: 'prediction_name',
+                    description: 'The name of the prediction to end.',
+                    type: ApplicationCommandOptionType.String,
+                    required: true,
+                    choices: predictionChoices,
+                },
+            ],
+        },
+        {
+            name: 'leaderboard',
+            description: 'Displays the current leaderboard standings.',
         },
     ];
 
