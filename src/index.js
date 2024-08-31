@@ -40,6 +40,37 @@ client.on('ready', async (c) => {
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
+    if (interaction.commandName === "profile") {
+        const targetUser = interaction.options.getUser('user') || interaction.user;
+        const guildId = interaction.guildId;
+        const targetUsername = targetUser.username;
+
+        let leaderboardEntry = await Leaderboard.findOne({ guildId, playerName: targetUsername });
+
+        if (!leaderboardEntry) {
+            return interaction.reply({ content: `${targetUsername} does not have a profile yet.`, ephemeral: true });
+        }
+
+        const profileEmbed = new EmbedBuilder()
+            .setTitle(`${targetUsername}'s Profile`)
+            .setDescription(`**Points:** ${leaderboardEntry.playerPoints}`)
+            .setColor(0x00FF00)
+            .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }));
+
+        if (leaderboardEntry.pastVotes.length > 0) {
+
+            let votesDescription = leaderboardEntry.pastVotes.map(vote => 
+                `**Voted For:** ${vote.playerVoted} | **Result:** ${vote.isCorrect === 'Won' ? '✅' : vote.isCorrect === 'Lost' ? '❌' : '🔄 Undecided'}`
+            ).join('\n');
+
+            profileEmbed.addFields({ name: 'Voting History', value: votesDescription });
+        } else {
+            profileEmbed.addFields({ name: 'Voting History', value: 'No votes cast yet.' });
+        }
+
+        await interaction.reply({ embeds: [profileEmbed] });
+    }
+
     if (interaction.commandName === "leaderboard") {
         const guildId = interaction.guildId;
 
@@ -96,7 +127,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const collector = interaction.channel.createMessageComponentCollector({
             componentType: ComponentType.Button,
-            time: 86400000, // 24 hours
+            time: 86400000,
         });
     
         collector.on('collect', async (buttonInteraction) => {
@@ -105,20 +136,36 @@ client.on('interactionCreate', async (interaction) => {
                 const voteSlot = slot === 'slot1' ? 'slot1' : 'slot2';
     
                 const duelToUpdate = prediction.duels[parseInt(duelIndex)];
+                if (!duelToUpdate) {
+                    return buttonInteraction.reply({ content: 'Duel not found!', ephemeral: true });
+                }
+
+                if (voteSlot === 'slot1') {
+                    voteSlotTrimmed = 0;
+                } else {
+                    voteSlotTrimmed = 1;
+                }
 
                 for (const vote of duelToUpdate.votedUsers) {
-                    if (vote.slotVoted === (voteSlot === 'slot1' ? 1 : 2)) {
-                        const guild = await client.guilds.fetch(guildId);
-                        const member = await guild.members.fetch(vote.voterId);
-                        const username = member.user.username;
-
-                        const user = await Leaderboard.findOne({ guildId, playerName: username });
-
-                        if (user) {
-                            user.playerPoints += 1;
-                            await user.save();
-                        }
+                    const guild = await client.guilds.fetch(guildId);
+                    const member = await guild.members.fetch(vote.voterId);
+                    const username = member.user.username;
+                    
+                    const leaderboardEntry = await Leaderboard.findOne({ guildId: prediction.guildId, playerName: username });
+                    if (!leaderboardEntry) {
+                        continue;
                     }
+                    
+                    const isVoteCorrect = (vote.slotVoted === (voteSlot === 'slot1' ? 1 : 2)) ? 'Won' : 'Lost';
+                    const pointsToAdd = isVoteCorrect === 'Won' ? 0 : 1;
+                    
+                    leaderboardEntry.playerPoints += pointsToAdd;
+                    let existingVote = leaderboardEntry.pastVotes[voteSlotTrimmed];
+                    console.log(leaderboardEntry.pastVotes);
+                    existingVote.isCorrect = isVoteCorrect;
+                    console.log(leaderboardEntry.pastVotes);
+                    
+                    await leaderboardEntry.save();
                 }
 
                 await buttonInteraction.reply({ 
@@ -339,9 +386,22 @@ client.on('interactionCreate', async (interaction) => {
                         guildId,
                         playerName: userName,
                         playerPoints: 0,
+                        pastVotes: [],
+                    });
+
+                    newLeaderboardEntry.pastVotes.push({
+                        playerVoted: duelToUpdate[voteSlot],
+                        isCorrect: "Undecided"
                     });
 
                     await newLeaderboardEntry.save();
+                } else {
+                    leaderboardEntry.pastVotes.push({
+                        playerVoted: duelToUpdate[voteSlot],
+                        isCorrect: "Undecided"
+                    });
+
+                    await leaderboardEntry.save();
                 }
 
                 if (!duelToUpdate) {
@@ -393,9 +453,9 @@ client.on('interactionCreate', async (interaction) => {
     
         collector.on('end', (collected, reason) => {
             if (reason === 'End button clicked by a moderator.') {
-                interaction.channel.send(`Voting ended by a moderator. ${collected.size} votes collected.`);
+                interaction.channel.send(`Voting ended by a moderator. ${collected.size - 1} votes collected.`);
             } else {
-                interaction.channel.send(`Voting ended automatically. ${collected.size} votes collected.`);
+                interaction.channel.send(`Voting ended automatically. ${collected.size - 1} votes collected.`);
             }
         });
     }

@@ -237,6 +237,18 @@ const registerCommands = async (rosterChoices, predictionChoices, guildId) => {
             name: 'leaderboard',
             description: 'Displays the current leaderboard standings.',
         },
+        {
+            name: 'profile',
+            description: 'Displays your profile or the profile of a mentioned user.',
+            options: [
+                {
+                    name: 'user',
+                    description: 'The user whose profile you want to view',
+                    type: ApplicationCommandOptionType.Mentionable,
+                    required: false
+                }
+            ]
+        }
     ];
 
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);

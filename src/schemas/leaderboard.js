@@ -5,6 +5,10 @@ const leaderboardSchema = new Schema({
     guildId: { type: String, required: true },
     playerName: { type: String, required: true },
     playerPoints: { type: Number, required : true },
+    pastVotes: [{
+        playerVoted: { type: String, required: true },
+        isCorrect: { type: String, required: true },
+    }]
 });
 
 leaderboardSchema.index({ guildId: 1, playerName: 1 }, { unique: true });
