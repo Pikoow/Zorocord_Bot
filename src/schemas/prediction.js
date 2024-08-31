@@ -22,6 +22,6 @@ const predictionSchema = new Schema({
     }],
 });
 
-predictionSchema.index({ guildId: 1, _id: 1 }, { unique: true });
+predictionSchema.index({ guildId: 1, predictionName: 1 }, { unique: true });
 
 module.exports = model("Prediction", predictionSchema, "predictions");

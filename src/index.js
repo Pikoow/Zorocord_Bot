@@ -189,9 +189,13 @@ client.on('interactionCreate', async (interaction) => {
         const roster1Name = interaction.options.getString('roster1');
         const roster2Name = interaction.options.getString('roster2');
         const numberDuels = interaction.options.getNumber('number_of_duels');
+
+        const existingPrediction = await Prediction.findOne({ guildId, predictionName });
+        if (existingPrediction) {
+            return interaction.reply({ content: 'A prediction with this name already exists.', ephemeral: true });
+        }
     
         const rosters = await Roster.find({ guildId, rosterName: { $in: [roster1Name, roster2Name] } });
-    
         if (rosters.length !== 2) {
             return interaction.reply({ content: 'One or both rosters not found.', ephemeral: true });
         }
@@ -201,7 +205,7 @@ client.on('interactionCreate', async (interaction) => {
         const prediction = new Prediction({
             _id: new mongoose.Types.ObjectId(),
             predictionName: predictionName,
-            guildId,
+            guildId: guildId,
             roster1: roster1._id,
             roster2: roster2._id,
             votes: { roster1: 0, roster2: 0 },
@@ -223,7 +227,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.followUp({ embeds: [duelEmbed] });
     
         const filter = response => response.author.id === interaction.user.id;
-        const collector = interaction.channel.createMessageCollector({ filter, max: numberDuels, time: 60000 });
+        const collector = interaction.channel.createMessageCollector({ filter, time: 600000 });
     
         let duelCount = 0;
     
@@ -236,9 +240,9 @@ client.on('interactionCreate', async (interaction) => {
                     slot2: duelInfo[1],
                     votes: { 
                         slot1: 0, 
-                        slot2: 0 
+                        slot2: 0,
                     },
-                    votedUsers: []
+                    votedUsers: [],
                 });
     
                 duelCount++;
@@ -259,7 +263,6 @@ client.on('interactionCreate', async (interaction) => {
                 interaction.followUp({ content: `All ${numberDuels} duels have been successfully registered.` });
             }
     
-            // Save the prediction with the collected duels
             await prediction.save();
     
             const rosterChoices = await getRosterChoices(guildId);
