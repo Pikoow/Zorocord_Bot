@@ -248,6 +248,18 @@ const registerCommands = async (rosterChoices, predictionChoices, guildId) => {
                     required: false
                 }
             ]
+        },
+        {
+            name: 'reset_profile',
+            description: 'Resets a user\'s leaderboard profile.',
+            options: [
+                {
+                    name: 'user',
+                    description: 'The user whose profile you want to reset',
+                    type: ApplicationCommandOptionType.Mentionable,
+                    required: true,
+                }
+            ]
         }
     ];
 

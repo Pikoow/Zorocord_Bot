@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, IntentsBitField, EmbedBuilder, ActivityType, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType, PermissionsBitField } = require('discord.js');
+const { Client, IntentsBitField, EmbedBuilder, ActivityType, isStringSelectMenu, StringSelectMenuOptionBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType, PermissionsBitField } = require('discord.js');
 const { connect, default: mongoose } = require('mongoose');
 const Roster = require('../src/schemas/roster');
 const Prediction = require('../src/schemas/prediction');
@@ -39,6 +39,20 @@ client.on('ready', async (c) => {
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === "reset_profile") {
+        const guildId = interaction.guildId;
+        const user = interaction.options.getUser('user');
+        const playerName = user.username;
+
+        const leaderboardEntry = await Leaderboard.findOneAndDelete({ guildId, playerName });
+
+        if (!leaderboardEntry) {
+            return interaction.reply({ content: `No profile found for ${playerName}.`, ephemeral: true });
+        }
+
+        return interaction.reply({ content: `${playerName}'s profile has been reset.`, ephemeral: true });
+    }
 
     if (interaction.commandName === "profile") {
         const targetUser = interaction.options.getUser('user') || interaction.user;
@@ -85,59 +99,61 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({ embeds: [embed] });
     }
-/*
+
     if (interaction.commandName === "distribute_points") {
         const guildId = interaction.guildId;
         const predictionName = interaction.options.getString('prediction_name');
-    
-        const prediction = await Prediction.findOne({ guildId, predictionName });
-
+        
+        const prediction = await Prediction.findOne({ guildId, predictionName }).populate('roster1 roster2');
         if (!prediction) {
-            return interaction.reply({ content: 'Prediction not found.', ephemeral: true });
+            return interaction.editReply({ content: 'Prediction not found.' });
         }
     
         const duels = prediction.duels;
     
         const embed = new EmbedBuilder()
-            .setTitle(`Set the winners of the prediction : ${prediction.predictionName}`)
+            .setTitle(`Prediction: ${prediction.predictionName}`)
             .setDescription(`**${prediction.roster1.rosterName}** vs **${prediction.roster2.rosterName}**`);
-
-        await interaction.reply({ embeds: [embed] });
-
-        duels.forEach(async (duel, index) => {
+    
+        await interaction.channel.send({ embeds: [embed] });
+        
+        for (const [index, duel] of duels.entries()) {
             const duelEmbed = new EmbedBuilder()
-                .setDescription(`**${duel.slot1}** vs **${duel.slot2}**\n` +
-                                `**${duel.votes.slot1}** votes vs **${duel.votes.slot2}** votes`)
-                .setFooter({ text: 'Vote by clicking the buttons below' });
+                .setDescription(`**${duel.slot1}** vs **${duel.slot2}**\n**${duel.votes.slot1}** votes vs **${duel.votes.slot2}** votes`);
+            
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('player-select')
+                .setPlaceholder('Select the player who won')
+                .addOptions(
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel(duel.slot1)
+                        .setValue(`duel_${predictionName}_${index}_slot1`),
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel(duel.slot2)
+                        .setValue(`duel_${predictionName}_${index}_slot2`)
+                );
+            
+            const row = new ActionRowBuilder().addComponents(selectMenu);
     
-            const firstButton = new ButtonBuilder()
-                .setCustomId(`duel_${index}_slot1`)
-                .setLabel(duel.slot1)
-                .setStyle(ButtonStyle.Primary);
-    
-            const secondButton = new ButtonBuilder()
-                .setCustomId(`duel_${index}_slot2`)  // Use index to identify the duel
-                .setLabel(duel.slot2)
-                .setStyle(ButtonStyle.Primary);
-    
-            const buttonRow = new ActionRowBuilder().addComponents(firstButton, secondButton);
-    
-            await interaction.channel.send({ embeds: [duelEmbed], components: [buttonRow] });
-        });
+            await interaction.channel.send({ embeds: [duelEmbed], components: [row] });
+        }
+
+        const filter = i => i.isStringSelectMenu() && i.customId === 'player-select';
 
         const collector = interaction.channel.createMessageComponentCollector({
-            componentType: ComponentType.Button,
-            time: 86400000,
+            filter,
         });
     
-        collector.on('collect', async (buttonInteraction) => {
-            if (buttonInteraction.customId.startsWith('duel_')) {
-                const [_, duelIndex, slot] = buttonInteraction.customId.split('_');
+        collector.on('collect', async i => {
+            const selectedCategory = i.values[0];
+
+            if (selectedCategory.startsWith(`duel_${predictionName}_`)) {
+                const [_, predictionName, duelIndex, slot] = selectedCategory.split('_');
                 const voteSlot = slot === 'slot1' ? 'slot1' : 'slot2';
     
                 const duelToUpdate = prediction.duels[parseInt(duelIndex)];
                 if (!duelToUpdate) {
-                    return buttonInteraction.reply({ content: 'Duel not found!', ephemeral: true });
+                    return i.reply({ content: 'Duel not found!', ephemeral: true });
                 }
 
                 if (voteSlot === 'slot1') {
@@ -166,17 +182,17 @@ client.on('interactionCreate', async (interaction) => {
                     await leaderboardEntry.save();
                 }
 
-                await buttonInteraction.reply({
-                    content: `The people who voted for **${duelToUpdate[voteSlot]}** received their points.`,
-                });
+                const newDuelEmbed = new EmbedBuilder()
+                    .setDescription(`The people who voted for **${duelToUpdate[voteSlot]}** received their points.`);
 
-                await buttonInteraction.message.edit({
+                await i.message.edit({
+                    embeds: [newDuelEmbed],
                     components: []
                 });
             }
         });
     }
-*/
+
     if (interaction.commandName === "reset_prediction") {
         const guildId = interaction.guildId;
         const predictionName = interaction.options.getString('prediction_name');
@@ -319,13 +335,10 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === "start_prediction") {
         const guildId = interaction.guildId;
         const predictionName = interaction.options.getString('prediction_name');
-    
-        // Acknowledge the interaction with a defer
-        await interaction.deferReply({ ephemeral: true });  // Use ephemeral if the response should only be visible to the user who invoked the command
-    
+        
         const prediction = await Prediction.findOne({ guildId, predictionName }).populate('roster1 roster2');
         if (!prediction) {
-            return interaction.editReply({ content: 'Prediction not found.' });
+            return interaction.reply({ content: 'Prediction not found.' });
         }
     
         const duels = prediction.duels;
@@ -334,124 +347,127 @@ client.on('interactionCreate', async (interaction) => {
             .setTitle(`Prediction: ${prediction.predictionName}`)
             .setDescription(`**${prediction.roster1.rosterName}** vs **${prediction.roster2.rosterName}**`);
     
-        await interaction.followUp({ embeds: [embed] });
-    
-        const endButton = new ButtonBuilder()
-            .setCustomId(`end_voting_${predictionName}`)
-            .setLabel('End Voting')
-            .setStyle(ButtonStyle.Danger);
-    
-        const endButtonRow = new ActionRowBuilder().addComponents(endButton);   
+        await interaction.channel.send({ embeds: [embed] });
+
+        const optionsEmbed = new EmbedBuilder()
+            .setTitle(`${predictionName} options.`);
+            
+        const optionsMenu = new StringSelectMenuBuilder()
+            .setCustomId('options-select')
+            .setPlaceholder('Select an option (Admin only)')
+            .addOptions(
+                new StringSelectMenuOptionBuilder()
+                    .setLabel('End prediction')
+                    .setValue(`end_voting_${predictionName}`),
+            );
+
+        const optionsRow = new ActionRowBuilder().addComponents(optionsMenu);
     
         for (const [index, duel] of duels.entries()) {
             const duelEmbed = new EmbedBuilder()
-                .setDescription(`**${duel.slot1}** vs **${duel.slot2}**\n**${duel.votes.slot1}** votes vs **${duel.votes.slot2}** votes`)
-                .setFooter({ text: 'Vote by clicking the buttons below' });
+                .setDescription(`**${duel.slot1}** vs **${duel.slot2}**\n**${duel.votes.slot1}** votes vs **${duel.votes.slot2}** votes`);
+            
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('player-select')
+                .setPlaceholder('Select a player to vote for')
+                .addOptions(
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel(duel.slot1)
+                        .setValue(`duel_${predictionName}_${index}_slot1`),
+                    new StringSelectMenuOptionBuilder()
+                        .setLabel(duel.slot2)
+                        .setValue(`duel_${predictionName}_${index}_slot2`)
+                );
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
     
-            const firstButton = new ButtonBuilder()
-                .setCustomId(`duel_${predictionName}_${index}_slot1`)
-                .setLabel(duel.slot1)
-                .setStyle(ButtonStyle.Primary);
-    
-            const secondButton = new ButtonBuilder()
-                .setCustomId(`duel_${predictionName}_${index}_slot2`)
-                .setLabel(duel.slot2)
-                .setStyle(ButtonStyle.Primary);
-    
-            const buttonRow = new ActionRowBuilder().addComponents(firstButton, secondButton);
-    
-            await interaction.channel.send({ embeds: [duelEmbed], components: [buttonRow] });
+            await interaction.channel.send({ embeds: [duelEmbed], components: [row] });
         }
     
-        await interaction.channel.send({ content: 'Click "End Voting" to stop voting.', components: [endButtonRow] });
+        await interaction.channel.send({ embeds: [optionsEmbed], components: [optionsRow] });
     
+        const filter = i => i.isStringSelectMenu() && (i.customId === 'player-select' || i.customId === 'options-select');
         const collector = interaction.channel.createMessageComponentCollector({
-            componentType: ComponentType.Button,
-            time: 86400000, // 24 hours
+            filter,
         });
     
-        collector.on('collect', async (buttonInteraction) => {
-            const { customId, user } = buttonInteraction;
-    
-            if (customId.startsWith(`duel_${predictionName}_`)) {
-                const [_, _predictionName, duelIndex, slot] = customId.split('_');
+        collector.on('collect', async i => {
+            const selectedCategory = i.values[0];
+            
+            if (selectedCategory.startsWith(`duel_${predictionName}_`)) {
+                const [_, predictionName, duelIndex, slot] = selectedCategory.split('_');
                 const voteSlot = slot === 'slot1' ? 'slot1' : 'slot2';
     
                 const duelToUpdate = prediction.duels[parseInt(duelIndex)];
     
-                const userName = user.username;
-                const leaderboardEntry = await Leaderboard.findOne({ guildId, playerName: userName });
+                const userName = i.user.username;
+                let leaderboardEntry = await Leaderboard.findOne({ guildId, playerName: userName });
     
+                if (!duelToUpdate) {
+                    return i.followUp({ content: 'Duel not found.', ephemeral: true });
+                }
+    
+                const userHasVoted = duelToUpdate.votedUsers.some(vote => vote.voterId === i.user.id);
+    
+                if (userHasVoted) {
+                    return i.reply({ content: 'You have already voted in this duel.', ephemeral: true });
+                }
+
                 if (!leaderboardEntry) {
-                    const newLeaderboardEntry = new Leaderboard({
+                    leaderboardEntry = new Leaderboard({
                         _id: new mongoose.Types.ObjectId(),
                         guildId,
                         playerName: userName,
                         playerPoints: 0,
                         pastVotes: [],
                     });
-    
-                    newLeaderboardEntry.pastVotes.push({
-                        playerVoted: duelToUpdate[voteSlot],
-                        isCorrect: "Undecided"
-                    });
-    
-                    await newLeaderboardEntry.save();
-                } else {
-                    leaderboardEntry.pastVotes.push({
-                        playerVoted: duelToUpdate[voteSlot],
-                        isCorrect: "Undecided"
-                    });
-    
-                    await leaderboardEntry.save();
                 }
-    
-                if (!duelToUpdate) {
-                    return buttonInteraction.reply({ content: 'Duel not found.', ephemeral: true });
-                }
-    
-                const userHasVoted = duelToUpdate.votedUsers.some(vote => vote.voterId === user.id);
-    
-                if (userHasVoted) {
-                    return buttonInteraction.reply({ content: 'You have already voted in this duel.', ephemeral: true });
-                }
-    
+
+                leaderboardEntry.pastVotes.push({
+                    playerVoted: duelToUpdate[voteSlot],
+                    isCorrect: "Undecided"
+                });
+
+                await leaderboardEntry.save();
+
                 duelToUpdate.votes[slot]++;
     
                 duelToUpdate.votedUsers.push({
-                    voterId: user.id,
+                    voterId: i.user.id,
                     slotVoted: slot === 'slot1' ? 1 : 2,
                 });
                 await prediction.save();
-    
-                await buttonInteraction.reply({ 
+
+                await i.reply({ 
                     content: `Vote recorded for **${duelToUpdate[voteSlot]}** in the duel between **${duelToUpdate.slot1}** and **${duelToUpdate.slot2}**.`,
                     ephemeral: true
                 });
-    
+        
                 const duelEmbed = new EmbedBuilder()
                     .setDescription(`**${duelToUpdate.slot1}** vs **${duelToUpdate.slot2}**\n**${duelToUpdate.votes.slot1}** votes vs **${duelToUpdate.votes.slot2}** votes`)
                     .setFooter({ text: 'Vote by clicking the buttons below' });
     
-                const message = await buttonInteraction.message.fetch();
+                const message = await i.message.fetch();
                 await message.edit({ embeds: [duelEmbed] });
-            } else if (customId.startsWith(`end_voting_${predictionName}`)) {
-                if (!buttonInteraction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-                    return buttonInteraction.reply({ content: 'You do not have permission to end voting.', ephemeral: true });
+
+            } else if (selectedCategory.startsWith(`end_voting_${predictionName}`)) {
+                if (!i.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                    return i.reply({ content: 'You do not have permission to end the prediction.', ephemeral: true });
                 }
     
-                collector.stop('End button clicked by a moderator.');
-    
-                await interaction.channel.send('Voting has ended.');
+                collector.stop(i);
             }
         });
     
-        collector.on('end', (collected, reason) => {
-            if (reason === 'End button clicked by a moderator.') {
-                interaction.channel.send(`Voting ended by a moderator. ${collected.size - 1} votes collected.`);
-            } else {
-                interaction.channel.send(`Voting ended automatically. ${collected.size - 1} votes collected.`);
-            }
+        collector.on('end', async (collected, i) => {
+            const newDuelEmbed = new EmbedBuilder()
+                .setTitle(`The prediction for **${predictionName}** has ended.`);
+                /*.setDescription({ text: `${collected.size - 1} votes collected.` });*/
+
+            await i.message.edit({
+                embeds: [newDuelEmbed],
+                components: []
+            });
         });
     }
 
