@@ -74,7 +74,7 @@ client.on('interactionCreate', async (interaction) => {
         if (leaderboardEntry.pastVotes.length > 0) {
 
             let votesDescription = leaderboardEntry.pastVotes.map(vote => 
-                `**Voted For:** ${vote.playerVoted} | **Result:** ${vote.isCorrect === 'Won' ? '✅' : vote.isCorrect === 'Lost' ? '❌' : '🔄 Undecided'}`
+                `Voted For: **${vote.playerVoted}** | Result: **${vote.isCorrect === 'Won' ? '✅' : vote.isCorrect === 'Lost' ? '❌' : '🔄 Undecided'}**`
             ).join('\n');
 
             profileEmbed.addFields({ name: 'Voting History', value: votesDescription });
@@ -106,7 +106,7 @@ client.on('interactionCreate', async (interaction) => {
         
         const prediction = await Prediction.findOne({ guildId, predictionName }).populate('roster1 roster2');
         if (!prediction) {
-            return interaction.editReply({ content: 'Prediction not found.' });
+            return interaction.reply({ content: 'Prediction not found.', ephemeral: true });
         }
     
         const duels = prediction.duels;
@@ -115,7 +115,7 @@ client.on('interactionCreate', async (interaction) => {
             .setTitle(`Prediction: ${prediction.predictionName}`)
             .setDescription(`**${prediction.roster1.rosterName}** vs **${prediction.roster2.rosterName}**`);
     
-        await interaction.channel.send({ embeds: [embed] });
+        await interaction.reply({ embeds: [embed] });
         
         for (const [index, duel] of duels.entries()) {
             const duelEmbed = new EmbedBuilder()
@@ -156,12 +156,6 @@ client.on('interactionCreate', async (interaction) => {
                     return i.reply({ content: 'Duel not found!', ephemeral: true });
                 }
 
-                if (voteSlot === 'slot1') {
-                    voteSlotTrimmed = 0;
-                } else {
-                    voteSlotTrimmed = 1;
-                }
-
                 for (const vote of duelToUpdate.votedUsers) {
                     const guild = await client.guilds.fetch(guildId);
                     const member = await guild.members.fetch(vote.voterId);
@@ -176,7 +170,7 @@ client.on('interactionCreate', async (interaction) => {
                     const pointsToAdd = isVoteCorrect === 'Won' ? 0 : 1;
                     
                     leaderboardEntry.playerPoints += pointsToAdd;
-                    let existingVote = leaderboardEntry.pastVotes[voteSlotTrimmed];
+                    const existingVote = leaderboardEntry.pastVotes.find(pastVote => pastVote._id.equals(vote._id));
                     existingVote.isCorrect = isVoteCorrect;
                     
                     await leaderboardEntry.save();
@@ -251,6 +245,9 @@ client.on('interactionCreate', async (interaction) => {
         const roster2Name = interaction.options.getString('roster2');
         const numberDuels = interaction.options.getNumber('number_of_duels');
 
+        let rosterProfile1 = await Roster.findOne({ rosterName: roster1Name, guildId: guildId });
+        let rosterProfile2 = await Roster.findOne({ rosterName: roster2Name, guildId: guildId });
+
         const existingPrediction = await Prediction.findOne({ guildId, predictionName });
         if (existingPrediction) {
             return interaction.reply({ content: 'A prediction with this name already exists.', ephemeral: true });
@@ -272,57 +269,109 @@ client.on('interactionCreate', async (interaction) => {
             votes: { roster1: 0, roster2: 0 },
             duels: [],
         });
-    
-        const embed = new EmbedBuilder()
+
+        const duels = prediction.duels;
+
+        const createPredictionEmbed = new EmbedBuilder()
             .setTitle('Prediction Created')
             .setDescription(`Prediction (**${predictionName}**) created between **${roster1Name}** and **${roster2Name}**.`)
             .setColor(0x00FF00);
     
-        await interaction.reply({ embeds: [embed] });
+        await interaction.reply({ embeds: [createPredictionEmbed] });
+
+        const playersRoster1 = rosterProfile1.rosterPlayers;
+        const playersRoster2 = rosterProfile2.rosterPlayers;
+
+        for (let index = 0 ; index < numberDuels ; index++) {
+            const dropdownOptions1 = playersRoster1.map((player, playerIndex) => ({
+                label: player.playerName,
+                value: `duel_${predictionName}_${index}_${playerIndex}_roster1`,
+            }));
+
+            const dropdownOptions2 = playersRoster2.map((player, playerIndex) => ({
+                label: player.playerName,
+                value: `duel_${predictionName}_${index}_${playerIndex}_roster2`,
+            }));
+                
+            const createPredictionMenu1 = new StringSelectMenuBuilder()
+                .setCustomId('create-prediction-select-1')
+                .setPlaceholder(`Select a player from ${roster1.rosterName} to add to the 1v1`)
+                .addOptions(...dropdownOptions1.map(option => ({
+                    label: option.label,
+                    value: option.value,
+                })));
+
+            const createPredictionMenu2 = new StringSelectMenuBuilder()
+                .setCustomId('create-prediction-select-2')
+                .setPlaceholder(`Select a player from ${roster2.rosterName} to add to the 1v1`)
+                .addOptions(...dropdownOptions2.map(option => ({
+                    label: option.label,
+                    value: option.value,
+                })));
+
+            const predictionRow1 = new ActionRowBuilder().addComponents(createPredictionMenu1);
+            const predictionRow2 = new ActionRowBuilder().addComponents(createPredictionMenu2);
+
+            const duelEmbed = new EmbedBuilder()
+                .setTitle(`Create a new duel in ${predictionName}`);
+                /*.setDescription(`**${duel.slot1}** vs **${duel.slot2}**\n**${duel.votes.slot1}** votes vs **${duel.votes.slot2}** votes`);
+*/    
+            await interaction.channel.send({ embeds: [duelEmbed], components: [predictionRow1, predictionRow2] });
+        }
     
-        const duelEmbed = new EmbedBuilder()
-            .setTitle('New Duel')
-            .setDescription(`Please provide the duels in the format: \`player1 ; player2\`.`)
-            .setColor(0x00FF00);
-    
-        await interaction.followUp({ embeds: [duelEmbed] });
-    
-        const filter = response => response.author.id === interaction.user.id;
-        const collector = interaction.channel.createMessageCollector({ filter, time: 600000 });
-    
-        let duelCount = 0;
-    
-        collector.on('collect', message => {
-            const duelInfo = message.content.split(';').map(str => str.trim());
-    
-            if (duelInfo.length === 2) {
-                prediction.duels.push({
-                    slot1: duelInfo[0],
-                    slot2: duelInfo[1],
-                    votes: { 
-                        slot1: 0, 
-                        slot2: 0,
-                    },
-                    votedUsers: [],
-                });
-    
-                duelCount++;
-                interaction.followUp(`Duel ${duelCount} added: **${duelInfo[0]}** vs **${duelInfo[1]}**`);
-    
-                if (duelCount === numberDuels) {
+        const filter = i => i.isStringSelectMenu();
+        const collector = interaction.channel.createMessageComponentCollector({ filter });
+
+        let numberDuelsReal = 0;
+        
+        collector.on('collect', async i => {
+            const selectedPlayer = i.values[0];
+
+            if (selectedPlayer.startsWith(`duel_${predictionName}_`)) {
+                const [_, predictionName, duelIndex, playerIndex, roster] = selectedPlayer.split('_');
+            
+                if (!duels[duelIndex]) {
+                    duels[duelIndex] = {
+                        slot1: null,
+                        slot2: null,
+                        votes: { 
+                            slot1: 0, 
+                            slot2: 0,
+                        },
+                        votedUsers: [],
+                    };
+                }
+
+                if (roster === 'roster1') {
+                    duels[duelIndex].slot1 = playersRoster1[playerIndex].playerName;
+                } else if (roster === 'roster2') {
+                    duels[duelIndex].slot2 = playersRoster2[playerIndex].playerName;
+                }
+
+                console.log("joueur 1 : " + duels[duelIndex].slot1);
+                console.log("joueur 2 : " + duels[duelIndex].slot2);
+
+                if (duels[duelIndex].slot1 != null && duels[duelIndex].slot2 != null) {
+                    numberDuelsReal++;
+
+                    const newEmbed = new EmbedBuilder()
+                        .setTitle(`New duel between ${duels[duelIndex].slot1} and ${duels[duelIndex].slot2} created !`)
+
+                    await i.message.edit({ embeds: [newEmbed], components: [] });
+
+                    console.log(duels);
+                }
+
+                if (numberDuelsReal === numberDuels) {
+                    await prediction.save();
+
                     collector.stop();
                 }
-            } else {
-                interaction.followUp('Invalid format. Please use: `player1 ; player2`.');
             }
         });
     
         collector.on('end', async collected => {
-            if (duelCount < numberDuels) {
-                interaction.followUp({ content: `Only ${duelCount} out of ${numberDuels} duels were added.`, ephemeral: true });
-            } else {
-                interaction.followUp({ content: `All ${numberDuels} duels have been successfully registered.` });
-            }
+            interaction.followUp({ content: `All ${numberDuels} duels have been successfully registered.` });
     
             await prediction.save();
     
@@ -347,7 +396,7 @@ client.on('interactionCreate', async (interaction) => {
             .setTitle(`Prediction: ${prediction.predictionName}`)
             .setDescription(`**${prediction.roster1.rosterName}** vs **${prediction.roster2.rosterName}**`);
     
-        await interaction.channel.send({ embeds: [embed] });
+        await interaction.reply({ embeds: [embed] });
 
         const optionsEmbed = new EmbedBuilder()
             .setTitle(`${predictionName} options.`);
@@ -408,6 +457,8 @@ client.on('interactionCreate', async (interaction) => {
                 }
     
                 const userHasVoted = duelToUpdate.votedUsers.some(vote => vote.voterId === i.user.id);
+
+                const voteId = new mongoose.Types.ObjectId();
     
                 if (userHasVoted) {
                     return i.reply({ content: 'You have already voted in this duel.', ephemeral: true });
@@ -424,6 +475,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 leaderboardEntry.pastVotes.push({
+                    _id: voteId,
                     playerVoted: duelToUpdate[voteSlot],
                     isCorrect: "Undecided"
                 });
@@ -433,6 +485,7 @@ client.on('interactionCreate', async (interaction) => {
                 duelToUpdate.votes[slot]++;
     
                 duelToUpdate.votedUsers.push({
+                    _id: voteId,
                     voterId: i.user.id,
                     slotVoted: slot === 'slot1' ? 1 : 2,
                 });
